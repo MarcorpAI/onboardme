@@ -173,6 +173,12 @@ function extractPhoneFromMessage(message) {
   return { phone, jid };
 }
 
+function isGroupMessage(message) {
+  const remoteJid = message.key?.remoteJid || '';
+  const participant = message.key?.participant || '';
+  return remoteJid.endsWith('@g.us') || Boolean(participant);
+}
+
 async function startSock() {
   try {
     loadMapping();
@@ -276,6 +282,11 @@ async function startSock() {
         const jid = message.key?.remoteJid;
 
         if (!msgContent || jid === 'status@broadcast') {
+          continue;
+        }
+
+        if (isGroupMessage(message)) {
+          logger.info({ jid }, 'Ignoring group message');
           continue;
         }
 
