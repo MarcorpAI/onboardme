@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 class Settings(BaseSettings):
@@ -54,8 +55,15 @@ class Settings(BaseSettings):
 settings = Settings()
 
 if settings.database_url:
-    DATABASE_URL = settings.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    parsed_url = urlsplit(settings.database_url)
+    query = dict(parse_qsl(parsed_url.query, keep_blank_values=True))
+    sslmode = query.pop("sslmode", None)
+    clean_url = urlunsplit(parsed_url._replace(query=urlencode(query)))
+
+    DATABASE_URL = clean_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     SYNC_DATABASE_URL = settings.database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    DATABASE_CONNECT_ARGS = {"ssl": True} if sslmode else {}
 else:
     DATABASE_URL = f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
     SYNC_DATABASE_URL = f"postgresql://{settings.postgres_user}:{settings.postgres_password}@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    DATABASE_CONNECT_ARGS = {}

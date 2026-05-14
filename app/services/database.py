@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 import uuid
 import logging
 
-from app.config import DATABASE_URL, settings
+from app.config import DATABASE_CONNECT_ARGS, DATABASE_URL, settings
 from app.models.base import Base
 from app.models.client import Client
 from app.models.member import Member
@@ -22,7 +22,7 @@ from app.models.template import Template
 
 logger = logging.getLogger(__name__)
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args=DATABASE_CONNECT_ARGS)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
