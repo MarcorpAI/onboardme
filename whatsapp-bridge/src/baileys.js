@@ -88,6 +88,35 @@ export function getConnectionStatus() {
   };
 }
 
+export async function disconnectAndClearSession() {
+  try {
+    if (currentSock?.logout) {
+      await currentSock.logout();
+    } else if (currentSock?.end) {
+      currentSock.end(undefined);
+    }
+  } catch (error) {
+    logger.warn({ error: error.message }, 'Error during WhatsApp logout');
+  }
+
+  currentSock = null;
+  currentQR = null;
+  isConnected = false;
+  isReady = false;
+  lidToPhone = new Map();
+  phoneToLid = new Map();
+
+  try {
+    fs.rmSync(SESSION_PATH, { recursive: true, force: true });
+    fs.mkdirSync(SESSION_PATH, { recursive: true });
+  } catch (error) {
+    logger.warn({ error: error.message }, 'Failed to clear session path');
+  }
+
+  setTimeout(startSock, 1000);
+  logger.info('WhatsApp session cleared, restarting socket');
+}
+
 async function resolveVersion() {
   try {
     const result = await fetchLatestBaileysVersion();

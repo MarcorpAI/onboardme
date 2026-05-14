@@ -23,6 +23,7 @@ from app.services.database import (
     get_templates_for_client,
     get_touchpoint_with_member,
     get_conversation_messages,
+    update_touchpoint,
 )
 from app.services.groq import groq_service
 from app.services.whatsapp import whatsapp_service
@@ -471,6 +472,73 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
     except Exception as e:
         logger.exception(f"Error firing touchpoint {touchpoint_id}: {e}")
         return False
+
+
+async def escalate_human_touchpoint(touchpoint_id: uuid.UUID) -> bool:
+    """Notify the admin number that a member needs manual follow-up."""
+    try:
+        tp_data = await get_touchpoint_with_member(touchpoint_id)
+        if not tp_data:
+            logger.error(f"Human touchpoint {touchpoint_id} not found")
+            return False
+
+        admin_number = settings.human_escalation_whatsapp.strip()
+        if not admin_number:
+            logger.error("HUMAN_ESCALATION_WHATSAPP is not configured")
+            return False
+
+        from app.services.database import get_default_client
+        client_data = await get_default_client()
+        if not client_data:
+            logger.error("No default client found")
+            return False
+
+        member = tp_data["member"]
+        touchpoint_key = tp_data["touchpoint_key"]
+        template = await get_template(client_data["id"], touchpoint_key)
+        action = template.get("brief") if template else "Manual action required."
+        cta = template.get("cta") if template else ""
+
+        message = _build_human_escalation_message(member, touchpoint_key, action, cta)
+        sent, _ = await whatsapp_service.send_message(admin_number, message)
+        if not sent:
+            logger.error(f"Failed to send human escalation for touchpoint {touchpoint_key}")
+            return False
+
+        await update_touchpoint(touchpoint_id, state="needs_human", fired_at=datetime.now(timezone.utc))
+        logger.info(f"Human escalation sent for touchpoint {touchpoint_key} member {member['id']}")
+        return True
+
+    except Exception as e:
+        logger.exception(f"Error escalating human touchpoint {touchpoint_id}: {e}")
+        return False
+
+
+def _build_human_escalation_message(member: Dict[str, Any], touchpoint_key: str, action: str, cta: str) -> str:
+    lines = [
+        f"Human action needed: {touchpoint_key}",
+        "",
+        f"Name: {member.get('name') or ''}",
+        f"WhatsApp: {member.get('whatsapp') or ''}",
+    ]
+
+    optional_fields = [
+        ("Email", member.get("email")),
+        ("Industry", member.get("industry")),
+        ("Company", member.get("company")),
+        ("Stage", member.get("stage")),
+        ("Building", member.get("building")),
+        ("Goals", member.get("goals")),
+    ]
+    for label, value in optional_fields:
+        if value:
+            lines.append(f"{label}: {value}")
+
+    lines.extend(["", f"Action: {action}"])
+    if cta:
+        lines.append(f"CTA: {cta}")
+
+    return "\n".join(lines)
 
 
 async def fire_nudge(touchpoint_id: uuid.UUID) -> bool:

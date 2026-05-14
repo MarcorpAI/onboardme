@@ -267,6 +267,21 @@ async function refreshWhatsApp() {
   }
 }
 
+async function disconnectWhatsApp() {
+  if (!confirm("Disconnect WhatsApp and clear the current bridge session?")) return;
+
+  try {
+    setStatus("Disconnecting WhatsApp...");
+    await api("/api/whatsapp/disconnect", { method: "POST" });
+    whatsappState.textContent = "Disconnected";
+    whatsappDetail.textContent = "Session cleared. A new QR code should appear shortly.";
+    setStatus("WhatsApp disconnected");
+    setTimeout(refreshWhatsApp, 2000);
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
 function updateWhatsAppPolling() {
   if (state.whatsappPoll) {
     clearInterval(state.whatsappPoll);
@@ -321,6 +336,7 @@ document.querySelector("#save-community").addEventListener("click", saveCommunit
 document.querySelector("#save-template").addEventListener("click", saveTemplate);
 document.querySelector("#new-template").addEventListener("click", startNewTemplate);
 document.querySelector("#refresh-whatsapp").addEventListener("click", refreshWhatsApp);
+document.querySelector("#disconnect-whatsapp").addEventListener("click", disconnectWhatsApp);
 
 if (state.token) {
   load();

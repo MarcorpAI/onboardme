@@ -23,6 +23,7 @@ from app.services.database import (
     upsert_template,
 )
 from app.config import settings as app_settings
+from app.services.whatsapp import whatsapp_service
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -368,3 +369,8 @@ async def get_whatsapp_qr_image():
         media_type="image/png",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
+
+
+@router.post("/whatsapp/disconnect", dependencies=[Depends(require_admin_token)])
+async def disconnect_whatsapp():
+    return await whatsapp_service.disconnect()

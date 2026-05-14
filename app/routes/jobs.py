@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from app.config import settings
 from app.services.database import (
     get_pending_touchpoints,
+    get_pending_human_touchpoints,
     get_touchpoints_needing_nudge,
     get_timed_out_touchpoints,
     get_disengaged_members,
@@ -30,6 +31,7 @@ from app.services.database import (
 )
 from app.services.journey import (
     fire_touchpoint,
+    escalate_human_touchpoint,
     fire_nudge,
     TOUCHPOINT_MAP,
 )
@@ -49,9 +51,19 @@ async def fire_pending_touchpoints():
     - conditional touchpoints whose conditions aren't met (checked inside fire_touchpoint)
     """
     pending = await get_pending_touchpoints()
-    logger.info(f"Found {len(pending)} pending touchpoints to fire")
+    pending_human = await get_pending_human_touchpoints()
+    logger.info(f"Found {len(pending)} pending touchpoints and {len(pending_human)} human touchpoints to process")
 
     results = []
+    for tp in pending_human:
+        success = await escalate_human_touchpoint(tp["id"])
+        results.append({
+            "touchpoint_id": str(tp["id"]),
+            "touchpoint_key": tp["touchpoint_key"],
+            "member_id": str(tp["member_id"]),
+            "status": "escalated" if success else "failed",
+        })
+
     for tp in pending:
         success = await fire_touchpoint(tp["id"])
         results.append({
@@ -62,13 +74,15 @@ async def fire_pending_touchpoints():
         })
 
     fired = sum(1 for r in results if r["status"] == "fired")
+    escalated = sum(1 for r in results if r["status"] == "escalated")
     failed = sum(1 for r in results if r["status"] == "failed")
 
-    logger.info(f"fire-touchpoints: {fired} fired, {failed} failed out of {len(pending)}")
+    logger.info(f"fire-touchpoints: {fired} fired, {escalated} escalated, {failed} failed")
 
     return {
-        "processed": len(pending),
+        "processed": len(pending) + len(pending_human),
         "fired": fired,
+        "escalated": escalated,
         "failed": failed,
         "results": results,
     }

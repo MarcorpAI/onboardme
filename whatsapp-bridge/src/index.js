@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import pino from 'pino';
 import express from 'express';
-import { createBaileysBot, sendWhatsAppMessage, getConnectionStatus } from './baileys.js';
+import { createBaileysBot, disconnectAndClearSession, sendWhatsAppMessage, getConnectionStatus } from './baileys.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 const API_URL = process.env.API_URL || 'http://localhost:8000';
@@ -49,6 +49,16 @@ app.get('/qr', (req, res) => {
     res.json({ qr: null, message: 'Already connected' });
   } else {
     res.json({ qr: null, message: 'Waiting for QR code...' });
+  }
+});
+
+app.post('/disconnect', async (req, res) => {
+  try {
+    await disconnectAndClearSession();
+    res.json({ status: 'disconnected' });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Disconnect error');
+    res.status(500).json({ error: error.message });
   }
 });
 

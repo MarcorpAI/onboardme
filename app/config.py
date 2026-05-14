@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # WhatsApp Bridge
     baileys_session_path: str = "./sessions"
     whatsapp_bridge_url: str = "http://localhost:3000"
+    human_escalation_whatsapp: str = ""
 
     # Server
     host: str = "0.0.0.0"

@@ -626,6 +626,24 @@ async def get_pending_touchpoints() -> List[Dict[str, Any]]:
         return [_touchpoint_to_dict(t) for t in touchpoints]
 
 
+async def get_pending_human_touchpoints() -> List[Dict[str, Any]]:
+    """Find due touchpoints that require a human admin action."""
+    now = datetime.now(timezone.utc)
+    async with async_session_maker() as db:
+        stmt = select(JourneyTouchpoint).where(
+            and_(
+                JourneyTouchpoint.state == "pending",
+                JourneyTouchpoint.scheduled_for <= now,
+                JourneyTouchpoint.requires_human == True,
+            )
+        ).order_by(JourneyTouchpoint.scheduled_for.asc())
+
+        result = await db.execute(stmt)
+        touchpoints = result.scalars().all()
+
+        return [_touchpoint_to_dict(t) for t in touchpoints]
+
+
 async def get_touchpoints_needing_nudge(delay_mins: int) -> List[Dict[str, Any]]:
     """
     Find touchpoints in 'in_conversation' state where the last member message
