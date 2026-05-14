@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OnboardMe Settings</title>
+    <link rel="stylesheet" href="/static/settings.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">OnboardMe</p>
+          <h1>Journey Control</h1>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-panel="community">Community</button>
+          <button class="nav-item" data-panel="templates">Messages</button>
+          <button class="nav-item" data-panel="timing">Timing</button>
+        </nav>
+        <p id="status" class="status">Loading settings...</p>
+      </aside>
+
+      <section class="workspace">
+        <section id="community" class="panel active">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Profile</p>
+              <h2>Community Settings</h2>
+            </div>
+            <button id="save-community" class="primary">Save</button>
+          </div>
+
+          <form id="community-form" class="form-grid">
+            <label>
+              Community name
+              <input name="community_name" autocomplete="off" />
+            </label>
+            <label>
+              Agent name
+              <input name="agent_name" autocomplete="off" />
+            </label>
+            <label class="wide">
+              Community description
+              <textarea name="community_description" rows="5"></textarea>
+            </label>
+            <label class="wide">
+              Agent tone
+              <input name="agent_tone" autocomplete="off" />
+            </label>
+            <label>
+              Invite link
+              <input name="invite_link" autocomplete="off" />
+            </label>
+            <label>
+              Calendly link
+              <input name="calendly_link" autocomplete="off" />
+            </label>
+            <label>
+              Founder Stories link
+              <input name="founder_stories_link" autocomplete="off" />
+            </label>
+            <label>
+              Operator Session link
+              <input name="operator_session_link" autocomplete="off" />
+            </label>
+          </form>
+        </section>
+
+        <section id="templates" class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">90-day journey</p>
+              <h2>Message Templates</h2>
+            </div>
+            <button id="save-template" class="primary">Save selected</button>
+          </div>
+
+          <div class="template-layout">
+            <div id="template-list" class="template-list"></div>
+
+            <form id="template-form" class="template-editor">
+              <div class="editor-topline">
+                <div>
+                  <p id="template-key" class="template-key">Select a touchpoint</p>
+                  <input name="name" class="template-title-input" placeholder="Touchpoint name" />
+                </div>
+                <label class="switch">
+                  <input name="active" type="checkbox" />
+                  <span>Active</span>
+                </label>
+              </div>
+
+              <div class="compact-grid">
+                <label>
+                  Day
+                  <input name="day" type="number" min="1" step="1" />
+                </label>
+                <label>
+                  Phase
+                  <select name="phase">
+                    <option value="foundation">Foundation</option>
+                    <option value="integration">Integration</option>
+                    <option value="consolidation">Consolidation</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="toggle-row">
+                <label><input name="automation" type="checkbox" /> Automated</label>
+                <label><input name="conditional" type="checkbox" /> Conditional</label>
+                <label><input name="requires_human" type="checkbox" /> Human action</label>
+              </div>
+
+              <label>
+                Purpose
+                <textarea name="purpose" rows="3"></textarea>
+              </label>
+              <label>
+                CTA
+                <textarea name="cta" rows="3"></textarea>
+              </label>
+              <label>
+                Brief
+                <textarea name="brief" rows="5"></textarea>
+              </label>
+              <label>
+                Fallback message
+                <textarea name="fallback_message" rows="3"></textarea>
+              </label>
+            </form>
+          </div>
+        </section>
+
+        <section id="timing" class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Runtime</p>
+              <h2>Timing Config</h2>
+            </div>
+          </div>
+          <div id="timing-grid" class="metrics"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/settings.js"></script>
+  </body>
+</html>

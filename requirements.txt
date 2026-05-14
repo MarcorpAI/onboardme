@@ -1,0 +1,12 @@
+fastapi==0.109.2
+uvicorn==0.27.1
+pydantic==2.6.1
+pydantic-settings==2.2.1
+asyncpg==0.29.0
+python-dotenv==1.0.1
+httpx==0.27.0
+sqlalchemy[asyncio]==2.0.25
+psycopg2-binary==2.9.9
+alembic==1.13.1
+groq==0.8.0
+anthropic==0.49.0

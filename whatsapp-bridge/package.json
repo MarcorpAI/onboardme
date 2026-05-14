@@ -1,0 +1,19 @@
+{
+  "name": "onboardme-whatsapp-bridge",
+  "version": "1.0.0",
+  "description": "WhatsApp bridge service using Baileys",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.10",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "pino": "^8.19.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
