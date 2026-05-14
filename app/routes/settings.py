@@ -363,4 +363,8 @@ async def get_whatsapp_qr_image():
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     buffer.seek(0)
-    return StreamingResponse(buffer, media_type="image/png")
+    return StreamingResponse(
+        buffer,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )

@@ -6,6 +6,9 @@ const state = {
   selectedKey: null,
   creating: false,
   token: sessionStorage.getItem(TOKEN_KEY) || "",
+  activePanel: "community",
+  qrObjectUrl: null,
+  whatsappPoll: null,
 };
 
 const statusEl = document.querySelector("#status");
@@ -240,13 +243,18 @@ async function refreshWhatsApp() {
     if (qr.qr) {
       qrImage.classList.remove("hidden");
       const imageResponse = await fetch(`/api/whatsapp/qr.png?t=${Date.now()}`, {
+        cache: "no-store",
         headers: { "X-Admin-Token": state.token },
       });
       if (!imageResponse.ok) throw new Error("QR image unavailable");
       const blob = await imageResponse.blob();
-      qrImage.src = URL.createObjectURL(blob);
+      if (state.qrObjectUrl) URL.revokeObjectURL(state.qrObjectUrl);
+      state.qrObjectUrl = URL.createObjectURL(blob);
+      qrImage.src = state.qrObjectUrl;
       qrMessage.textContent = "Scan this code from WhatsApp > Linked devices.";
     } else {
+      if (state.qrObjectUrl) URL.revokeObjectURL(state.qrObjectUrl);
+      state.qrObjectUrl = null;
       qrImage.classList.add("hidden");
       qrImage.removeAttribute("src");
       qrMessage.textContent = qr.message || "No QR code available.";
@@ -256,6 +264,18 @@ async function refreshWhatsApp() {
       whatsappState.textContent = "Unavailable";
       whatsappDetail.textContent = error.message;
     }
+  }
+}
+
+function updateWhatsAppPolling() {
+  if (state.whatsappPoll) {
+    clearInterval(state.whatsappPoll);
+    state.whatsappPoll = null;
+  }
+
+  if (state.activePanel === "whatsapp" && state.token) {
+    refreshWhatsApp();
+    state.whatsappPoll = setInterval(refreshWhatsApp, 5000);
   }
 }
 
@@ -281,6 +301,8 @@ loginForm.addEventListener("submit", async (event) => {
 document.querySelector("#logout").addEventListener("click", () => {
   sessionStorage.removeItem(TOKEN_KEY);
   state.token = "";
+  if (state.whatsappPoll) clearInterval(state.whatsappPoll);
+  state.whatsappPoll = null;
   showLogin();
 });
 
@@ -290,6 +312,8 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     document.querySelectorAll(".panel").forEach((panel) => panel.classList.remove("active"));
     button.classList.add("active");
     document.querySelector(`#${button.dataset.panel}`).classList.add("active");
+    state.activePanel = button.dataset.panel;
+    updateWhatsAppPolling();
   });
 });
 
