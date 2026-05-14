@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: onboardme-api
+    env_file:
+      - .env
+    environment:
+      WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3000
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: Dockerfile
+    container_name: onboardme-whatsapp-bridge
+    environment:
+      BAILEYS_SESSION_PATH: /sessions
+      API_URL: http://api:8000
+      PORT: 3000
+    volumes:
+      - whatsapp_sessions:/sessions
+    ports:
+      - "3000:3000"
+
+volumes:
+  whatsapp_sessions:

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     postgres_db: str = "onboardme"
     postgres_user: str = "postgres"
     postgres_password: str = ""
+    database_url: Optional[str] = None
 
     # AI Provider (currently Groq, Claude ready for later)
     groq_api_key: str = ""
@@ -52,6 +53,9 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-DATABASE_URL = f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
-
-SYNC_DATABASE_URL = f"postgresql://{settings.postgres_user}:{settings.postgres_password}@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+if settings.database_url:
+    DATABASE_URL = settings.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    SYNC_DATABASE_URL = settings.database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+else:
+    DATABASE_URL = f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    SYNC_DATABASE_URL = f"postgresql://{settings.postgres_user}:{settings.postgres_password}@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
