@@ -49,6 +49,7 @@ class ClientSettingsResponse(BaseModel):
     calendly_link: Optional[str] = None
     founder_stories_link: Optional[str] = None
     operator_session_link: Optional[str] = None
+    human_escalation_whatsapp: Optional[str] = None
 
 
 class ClientSettingsUpdate(BaseModel):
@@ -60,6 +61,7 @@ class ClientSettingsUpdate(BaseModel):
     calendly_link: Optional[str] = None
     founder_stories_link: Optional[str] = None
     operator_session_link: Optional[str] = None
+    human_escalation_whatsapp: Optional[str] = None
 
 
 class TemplateResponse(BaseModel):
@@ -171,6 +173,7 @@ async def get_settings():
         calendly_link=client.get("calendly_link", app_settings.calendly_link),
         founder_stories_link=client.get("founder_stories_link", app_settings.founder_stories_link),
         operator_session_link=client.get("operator_session_link", app_settings.operator_session_link),
+        human_escalation_whatsapp=app_settings.human_escalation_whatsapp,
     )
 
 
@@ -205,6 +208,8 @@ async def update_settings(updates: ClientSettingsUpdate):
         cfg.founder_stories_link = updates.founder_stories_link
     if updates.operator_session_link is not None:
         cfg.operator_session_link = updates.operator_session_link
+    if updates.human_escalation_whatsapp is not None:
+        cfg.human_escalation_whatsapp = updates.human_escalation_whatsapp
 
     client = await upsert_default_client()
 
@@ -219,6 +224,7 @@ async def update_settings(updates: ClientSettingsUpdate):
         calendly_link=client.get("calendly_link", cfg.calendly_link),
         founder_stories_link=client.get("founder_stories_link", cfg.founder_stories_link),
         operator_session_link=client.get("operator_session_link", cfg.operator_session_link),
+        human_escalation_whatsapp=cfg.human_escalation_whatsapp,
     )
 
 

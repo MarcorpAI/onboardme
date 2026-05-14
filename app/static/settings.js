@@ -17,6 +17,7 @@ const appShell = document.querySelector("#app-shell");
 const loginForm = document.querySelector("#login-form");
 const loginError = document.querySelector("#login-error");
 const communityForm = document.querySelector("#community-form");
+const whatsappForm = document.querySelector("#whatsapp-form");
 const templateForm = document.querySelector("#template-form");
 const templateList = document.querySelector("#template-list");
 const templateKey = document.querySelector("#template-key");
@@ -170,11 +171,27 @@ async function load() {
     state.settings = settings;
     state.templates = templates;
     setFormValues(communityForm, settings);
+    setFormValues(whatsappForm, settings);
     renderTemplates();
     renderTiming(timing);
     if (templates.length) selectTemplate(templates[0].touchpoint_key);
     await refreshWhatsApp();
     setStatus("Ready");
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
+async function saveWhatsAppSettings() {
+  try {
+    setStatus("Saving WhatsApp settings...");
+    const payload = formValues(whatsappForm);
+    state.settings = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    setFormValues(whatsappForm, state.settings);
+    setStatus("WhatsApp settings saved");
   } catch (error) {
     if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
   }
@@ -337,6 +354,7 @@ document.querySelector("#save-template").addEventListener("click", saveTemplate)
 document.querySelector("#new-template").addEventListener("click", startNewTemplate);
 document.querySelector("#refresh-whatsapp").addEventListener("click", refreshWhatsApp);
 document.querySelector("#disconnect-whatsapp").addEventListener("click", disconnectWhatsApp);
+document.querySelector("#save-whatsapp").addEventListener("click", saveWhatsAppSettings);
 
 if (state.token) {
   load();
