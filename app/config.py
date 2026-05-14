@@ -58,6 +58,7 @@ if settings.database_url:
     parsed_url = urlsplit(settings.database_url)
     query = dict(parse_qsl(parsed_url.query, keep_blank_values=True))
     sslmode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
     clean_url = urlunsplit(parsed_url._replace(query=urlencode(query)))
 
     DATABASE_URL = clean_url.replace("postgresql://", "postgresql+asyncpg://", 1)
