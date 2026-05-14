@@ -254,7 +254,11 @@ async def handle_inbound(data: dict):
             # This can happen if the member messages before the cron picks up
             touchpoints = await get_touchpoints_by_member(member_id)
             pending_tp = next(
-                (tp for tp in touchpoints if tp["state"] == "pending"), None
+                (
+                    tp for tp in touchpoints
+                    if tp["state"] == "pending" and not tp.get("requires_human")
+                ),
+                None
             )
             if pending_tp:
                 # Fire this touchpoint now

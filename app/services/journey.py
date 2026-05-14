@@ -4,6 +4,7 @@ Defines the 90-day touchpoint schedule and handles scheduling + firing logic.
 """
 
 from datetime import datetime, timedelta, timezone
+import asyncio
 from typing import List, Dict, Any, Optional
 import uuid
 import logging
@@ -317,7 +318,11 @@ async def schedule_journey(member_id: uuid.UUID, approved_at: datetime, client_i
         # Day 1 = 0 days offset (fires immediately)
         # Day 2 = 1 day offset (24h after approval)
         # Day N = N-1 days offset
-        scheduled_for = approved_at + timedelta(days=(tp_def.get("day") or 1) - 1)
+        scheduled_for = _calculate_scheduled_for(
+            approved_at=approved_at,
+            day=tp_def.get("day") or 1,
+            send_time=tp_def.get("send_time"),
+        )
 
         await insert_touchpoint(
             member_id=member_id,
@@ -337,6 +342,36 @@ async def schedule_journey(member_id: uuid.UUID, approved_at: datetime, client_i
 
     logger.info(f"Scheduled {count} touchpoints for member {member_id}")
     return count
+
+
+def _calculate_scheduled_for(approved_at: datetime, day: int, send_time: Optional[str] = None) -> datetime:
+    """Calculate the absolute fire time for a journey touchpoint."""
+    if approved_at.tzinfo is None:
+        approved_at = approved_at.replace(tzinfo=timezone.utc)
+
+    scheduled_for = approved_at + timedelta(days=day - 1)
+    if not send_time:
+        return scheduled_for
+
+    hour, minute = [int(part) for part in send_time.split(":", 1)]
+    scheduled_for = scheduled_for.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if day == 1 and scheduled_for < approved_at:
+        return approved_at
+    return scheduled_for
+
+
+async def run_automation_loop():
+    """Small in-process scheduler for initiating due touchpoints."""
+    logger.info("Starting automation loop")
+    while True:
+        try:
+            from app.routes.jobs import fire_pending_touchpoints
+
+            await fire_pending_touchpoints()
+        except Exception as e:
+            logger.exception(f"Automation loop error: {e}")
+
+        await asyncio.sleep(300)
 
 
 # ═══════════════════════════════════════════════════════════

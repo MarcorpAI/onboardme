@@ -13,6 +13,7 @@ Routes:
 """
 
 import logging
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -22,7 +23,7 @@ from pathlib import Path
 from app.routes import webhooks, jobs, settings
 from app.config import settings as app_settings
 from app.services.database import init_db, upsert_default_client, get_templates_for_client, upsert_template, sync_template_metadata
-from app.services.journey import TOUCHPOINT_SCHEDULE
+from app.services.journey import TOUCHPOINT_SCHEDULE, run_automation_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
+automation_task = None
 
 app = FastAPI(
     title="OnboardMe",
@@ -78,6 +80,7 @@ async def startup_event():
                 touchpoint_key=key,
                 name=tp_def["name"],
                 day=tp_def["day"],
+                send_time=tp_def.get("send_time"),
                 phase=tp_def["phase"],
                 automation=tp_def["automation"],
                 conditional=tp_def["conditional"],
@@ -107,6 +110,10 @@ async def startup_event():
         logger.info("All templates already exist, nothing to seed")
 
     logger.info("OnboardMe V2 startup complete")
+
+    global automation_task
+    if automation_task is None:
+        automation_task = asyncio.create_task(run_automation_loop())
 
 
 @app.get("/health")

@@ -10,3 +10,4 @@ psycopg2-binary==2.9.9
 alembic==1.13.1
 groq==0.8.0
 anthropic==0.49.0
+qrcode[pil]==7.4.2

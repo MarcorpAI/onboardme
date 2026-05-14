@@ -1,25 +1,57 @@
+const TOKEN_KEY = "onboardme_admin_token";
+
 const state = {
   settings: null,
   templates: [],
   selectedKey: null,
+  creating: false,
+  token: sessionStorage.getItem(TOKEN_KEY) || "",
 };
 
 const statusEl = document.querySelector("#status");
+const loginScreen = document.querySelector("#login-screen");
+const appShell = document.querySelector("#app-shell");
+const loginForm = document.querySelector("#login-form");
+const loginError = document.querySelector("#login-error");
 const communityForm = document.querySelector("#community-form");
 const templateForm = document.querySelector("#template-form");
 const templateList = document.querySelector("#template-list");
 const templateKey = document.querySelector("#template-key");
 const timingGrid = document.querySelector("#timing-grid");
+const qrImage = document.querySelector("#qr-image");
+const qrMessage = document.querySelector("#qr-message");
+const whatsappState = document.querySelector("#whatsapp-state");
+const whatsappDetail = document.querySelector("#whatsapp-detail");
 
 function setStatus(message) {
   statusEl.textContent = message;
 }
 
+function showApp() {
+  loginScreen.classList.add("hidden");
+  appShell.classList.remove("hidden");
+}
+
+function showLogin(message = "") {
+  appShell.classList.add("hidden");
+  loginScreen.classList.remove("hidden");
+  loginError.textContent = message;
+}
+
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Admin-Token": state.token,
+    ...(options.headers || {}),
+  };
+
+  const response = await fetch(path, { ...options, headers });
+  if (response.status === 401) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    state.token = "";
+    showLogin("Invalid or expired token.");
+    throw new Error("Unauthorized");
+  }
 
   if (!response.ok) {
     const error = await response.text();
@@ -37,7 +69,6 @@ function setFormValues(form, values) {
   for (const [key, value] of Object.entries(values)) {
     const field = form.elements[key];
     if (!field) continue;
-
     if (field.type === "checkbox") {
       field.checked = Boolean(value);
     } else {
@@ -46,13 +77,29 @@ function setFormValues(form, values) {
   }
 }
 
+function emptyTemplate() {
+  return {
+    name: "",
+    day: 1,
+    send_time: "",
+    phase: "foundation",
+    automation: true,
+    conditional: false,
+    requires_human: false,
+    purpose: "",
+    cta: "",
+    brief: "",
+    fallback_message: "",
+    active: true,
+  };
+}
+
 function templateByKey(key) {
   return state.templates.find((template) => template.touchpoint_key === key);
 }
 
 function renderTemplates() {
   templateList.innerHTML = "";
-
   for (const template of state.templates) {
     const button = document.createElement("button");
     button.type = "button";
@@ -61,10 +108,9 @@ function renderTemplates() {
       template.touchpoint_key === state.selectedKey ? "active" : "",
       template.active ? "" : "inactive",
     ].join(" ");
-    button.dataset.key = template.touchpoint_key;
     button.innerHTML = `
       <strong>${template.name || template.touchpoint_key}</strong>
-      <span>Day ${template.day || 1} · ${template.phase || "journey"} · ${template.automation ? "auto" : "manual"}</span>
+      <span>Day ${template.day || 1}${template.send_time ? ` at ${template.send_time}` : ""} · ${template.automation ? "auto" : "manual"}</span>
     `;
     button.addEventListener("click", () => selectTemplate(template.touchpoint_key));
     templateList.appendChild(button);
@@ -74,10 +120,18 @@ function renderTemplates() {
 function selectTemplate(key) {
   const template = templateByKey(key);
   if (!template) return;
-
+  state.creating = false;
   state.selectedKey = key;
   templateKey.textContent = key;
   setFormValues(templateForm, template);
+  renderTemplates();
+}
+
+function startNewTemplate() {
+  state.creating = true;
+  state.selectedKey = null;
+  templateKey.textContent = "new_message";
+  setFormValues(templateForm, emptyTemplate());
   renderTemplates();
 }
 
@@ -102,6 +156,7 @@ function renderTiming(timing) {
 
 async function load() {
   try {
+    showApp();
     setStatus("Loading settings...");
     const [settings, templates, timing] = await Promise.all([
       api("/api/settings"),
@@ -114,14 +169,11 @@ async function load() {
     setFormValues(communityForm, settings);
     renderTemplates();
     renderTiming(timing);
-
-    if (templates.length) {
-      selectTemplate(templates[0].touchpoint_key);
-    }
-
+    if (templates.length) selectTemplate(templates[0].touchpoint_key);
+    await refreshWhatsApp();
     setStatus("Ready");
   } catch (error) {
-    setStatus(`Error: ${error.message}`);
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
   }
 }
 
@@ -136,44 +188,101 @@ async function saveCommunity() {
     setFormValues(communityForm, state.settings);
     setStatus("Community settings saved");
   } catch (error) {
-    setStatus(`Error: ${error.message}`);
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
   }
 }
 
 async function saveTemplate() {
-  const selected = templateByKey(state.selectedKey);
-  if (!selected) {
-    setStatus("Select a template first");
-    return;
-  }
-
   try {
-    setStatus("Saving template...");
+    setStatus("Saving message...");
     const raw = formValues(templateForm);
     const payload = {
       ...raw,
-      day: raw.day ? Number(raw.day) : null,
+      day: raw.day ? Number(raw.day) : 1,
+      send_time: raw.send_time || null,
       active: templateForm.elements.active.checked,
       automation: templateForm.elements.automation.checked,
       conditional: templateForm.elements.conditional.checked,
       requires_human: templateForm.elements.requires_human.checked,
     };
 
-    const saved = await api(`/api/templates/${selected.touchpoint_key}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
+    const path = state.creating ? "/api/templates" : `/api/templates/${state.selectedKey}`;
+    const method = state.creating ? "POST" : "PUT";
+    const saved = await api(path, { method, body: JSON.stringify(payload) });
 
-    state.templates = state.templates
-      .map((template) => template.touchpoint_key === saved.touchpoint_key ? saved : template)
-      .sort((a, b) => (a.day || 1) - (b.day || 1));
-
+    if (state.creating) {
+      state.templates.push(saved);
+    } else {
+      state.templates = state.templates.map((template) =>
+        template.touchpoint_key === saved.touchpoint_key ? saved : template
+      );
+    }
+    state.templates.sort((a, b) => (a.day || 1) - (b.day || 1));
     selectTemplate(saved.touchpoint_key);
-    setStatus("Template saved");
+    setStatus("Message saved");
   } catch (error) {
-    setStatus(`Error: ${error.message}`);
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
   }
 }
+
+async function refreshWhatsApp() {
+  try {
+    const [status, qr] = await Promise.all([
+      api("/api/whatsapp/status"),
+      api("/api/whatsapp/qr"),
+    ]);
+
+    whatsappState.textContent = status.connected ? "Connected" : "Not connected";
+    whatsappDetail.textContent = status.connected
+      ? "The bridge is ready to send and receive messages."
+      : "Scan the QR code with WhatsApp if one is available.";
+
+    if (qr.qr) {
+      qrImage.classList.remove("hidden");
+      const imageResponse = await fetch(`/api/whatsapp/qr.png?t=${Date.now()}`, {
+        headers: { "X-Admin-Token": state.token },
+      });
+      if (!imageResponse.ok) throw new Error("QR image unavailable");
+      const blob = await imageResponse.blob();
+      qrImage.src = URL.createObjectURL(blob);
+      qrMessage.textContent = "Scan this code from WhatsApp > Linked devices.";
+    } else {
+      qrImage.classList.add("hidden");
+      qrImage.removeAttribute("src");
+      qrMessage.textContent = qr.message || "No QR code available.";
+    }
+  } catch (error) {
+    if (error.message !== "Unauthorized") {
+      whatsappState.textContent = "Unavailable";
+      whatsappDetail.textContent = error.message;
+    }
+  }
+}
+
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const token = new FormData(loginForm).get("token");
+  state.token = token;
+  try {
+    await api("/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+    sessionStorage.setItem(TOKEN_KEY, token);
+    loginError.textContent = "";
+    await load();
+  } catch (error) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    state.token = "";
+    loginError.textContent = "Invalid token.";
+  }
+});
+
+document.querySelector("#logout").addEventListener("click", () => {
+  sessionStorage.removeItem(TOKEN_KEY);
+  state.token = "";
+  showLogin();
+});
 
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
@@ -186,5 +295,11 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 
 document.querySelector("#save-community").addEventListener("click", saveCommunity);
 document.querySelector("#save-template").addEventListener("click", saveTemplate);
+document.querySelector("#new-template").addEventListener("click", startNewTemplate);
+document.querySelector("#refresh-whatsapp").addEventListener("click", refreshWhatsApp);
 
-load();
+if (state.token) {
+  load();
+} else {
+  showLogin();
+}

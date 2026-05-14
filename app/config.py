@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
+    admin_token: str = ""
 
     # Webhook secret for default client (used at startup for seeding)
     webhook_secret: str = ""

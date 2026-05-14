@@ -14,6 +14,7 @@ class Template(Base):
     touchpoint_key = Column(Text, nullable=False)
     name = Column(Text, nullable=True)
     day = Column(Integer, nullable=True)
+    send_time = Column(Text, nullable=True)
     phase = Column(Text, nullable=True)
     automation = Column(Boolean, default=True)
     conditional = Column(Boolean, default=False)

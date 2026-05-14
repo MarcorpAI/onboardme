@@ -22,7 +22,13 @@ from app.models.template import Template
 
 logger = logging.getLogger(__name__)
 
-engine = create_async_engine(DATABASE_URL, echo=False, connect_args=DATABASE_CONNECT_ARGS)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args=DATABASE_CONNECT_ARGS,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -106,6 +112,7 @@ def _template_to_dict(t: Template) -> Dict[str, Any]:
         "touchpoint_key": t.touchpoint_key,
         "name": t.name,
         "day": t.day,
+        "send_time": t.send_time,
         "phase": t.phase,
         "automation": t.automation,
         "conditional": t.conditional,
@@ -129,6 +136,7 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS name TEXT"))
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS day INTEGER"))
+        await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS send_time TEXT"))
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS phase TEXT"))
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS automation BOOLEAN DEFAULT TRUE"))
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS conditional BOOLEAN DEFAULT FALSE"))
@@ -232,7 +240,8 @@ async def get_template(client_id: uuid.UUID, touchpoint_key: str) -> Optional[Di
 async def upsert_template(client_id: uuid.UUID, touchpoint_key: str, purpose: str,
                           cta: str, brief: str, fallback_message: Optional[str] = None,
                           active: bool = True, name: Optional[str] = None,
-                          day: Optional[int] = None, phase: Optional[str] = None,
+                          day: Optional[int] = None, send_time: Optional[str] = None,
+                          phase: Optional[str] = None,
                           automation: bool = True, conditional: bool = False,
                           requires_human: bool = False) -> Dict[str, Any]:
     """Create or update a template."""
@@ -247,6 +256,7 @@ async def upsert_template(client_id: uuid.UUID, touchpoint_key: str, purpose: st
         if t:
             t.name = name
             t.day = day
+            t.send_time = send_time
             t.phase = phase
             t.automation = automation
             t.conditional = conditional
@@ -263,6 +273,7 @@ async def upsert_template(client_id: uuid.UUID, touchpoint_key: str, purpose: st
                 touchpoint_key=touchpoint_key,
                 name=name,
                 day=day,
+                send_time=send_time,
                 phase=phase,
                 automation=automation,
                 conditional=conditional,

@@ -5,7 +5,14 @@ Reads from and writes to the clients table in DB.
 Single-tenant: always operates on the default client record.
 """
 
-from fastapi import APIRouter, HTTPException
+import io
+import re
+from datetime import datetime, timezone
+
+import httpx
+import qrcode
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -18,6 +25,11 @@ from app.services.database import (
 from app.config import settings as app_settings
 
 router = APIRouter(prefix="/api", tags=["settings"])
+
+
+def require_admin_token(x_admin_token: Optional[str] = Header(None)):
+    if app_settings.admin_token and x_admin_token != app_settings.admin_token:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -54,6 +66,7 @@ class TemplateResponse(BaseModel):
     touchpoint_key: str
     name: Optional[str] = None
     day: Optional[int] = None
+    send_time: Optional[str] = None
     phase: Optional[str] = None
     automation: bool = True
     conditional: bool = False
@@ -68,6 +81,7 @@ class TemplateResponse(BaseModel):
 class TemplateUpdate(BaseModel):
     name: Optional[str] = None
     day: Optional[int] = None
+    send_time: Optional[str] = None
     phase: Optional[str] = None
     automation: Optional[bool] = None
     conditional: Optional[bool] = None
@@ -79,12 +93,66 @@ class TemplateUpdate(BaseModel):
     active: Optional[bool] = None
 
 
+class TemplateCreate(BaseModel):
+    name: str
+    day: int = 1
+    send_time: Optional[str] = None
+    phase: Optional[str] = "foundation"
+    automation: bool = True
+    conditional: bool = False
+    requires_human: bool = False
+    purpose: str
+    cta: Optional[str] = ""
+    brief: str
+    fallback_message: Optional[str] = None
+    active: bool = True
+
+
+class LoginRequest(BaseModel):
+    token: str
+
+
+def _validate_send_time(send_time: Optional[str]) -> Optional[str]:
+    if not send_time:
+        return None
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", send_time):
+        raise HTTPException(status_code=422, detail="send_time must use HH:MM format")
+    return send_time
+
+
+def _template_response(t: dict) -> TemplateResponse:
+    return TemplateResponse(
+        id=str(t["id"]),
+        touchpoint_key=t["touchpoint_key"],
+        name=t.get("name"),
+        day=t.get("day"),
+        send_time=t.get("send_time"),
+        phase=t.get("phase"),
+        automation=t.get("automation", True),
+        conditional=t.get("conditional", False),
+        requires_human=t.get("requires_human", False),
+        purpose=t["purpose"],
+        cta=t["cta"],
+        brief=t["brief"],
+        fallback_message=t.get("fallback_message"),
+        active=t["active"],
+    )
+
+
 # ═══════════════════════════════════════════════════════════
 # Client Settings
 # ═══════════════════════════════════════════════════════════
 
 
-@router.get("/settings", response_model=ClientSettingsResponse)
+@router.post("/admin/login")
+async def login_admin(payload: LoginRequest):
+    """Validate admin token. The dependency checks X-Admin-Token for API calls."""
+    if app_settings.admin_token and payload.token != app_settings.admin_token:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+    return {"status": "ok"}
+
+
+@router.get("/settings", response_model=ClientSettingsResponse, dependencies=[Depends(require_admin_token)])
 async def get_settings():
     """Get the current client/community settings."""
     client = await get_default_client()
@@ -105,7 +173,7 @@ async def get_settings():
     )
 
 
-@router.put("/settings", response_model=ClientSettingsResponse)
+@router.put("/settings", response_model=ClientSettingsResponse, dependencies=[Depends(require_admin_token)])
 async def update_settings(updates: ClientSettingsUpdate):
     """Update client/community settings. Changes take effect immediately."""
     from app.config import settings as cfg
@@ -158,7 +226,7 @@ async def update_settings(updates: ClientSettingsUpdate):
 # ═══════════════════════════════════════════════════════════
 
 
-@router.get("/templates", response_model=list[TemplateResponse])
+@router.get("/templates", response_model=list[TemplateResponse], dependencies=[Depends(require_admin_token)])
 async def list_templates():
     """Get all templates for the default client."""
     client = await get_default_client()
@@ -166,27 +234,40 @@ async def list_templates():
         raise HTTPException(status_code=404, detail="No client configured")
 
     templates = await get_templates_for_client(client["id"], include_inactive=True)
-    return [
-        TemplateResponse(
-            id=str(t["id"]),
-            touchpoint_key=t["touchpoint_key"],
-            name=t.get("name"),
-            day=t.get("day"),
-            phase=t.get("phase"),
-            automation=t.get("automation", True),
-            conditional=t.get("conditional", False),
-            requires_human=t.get("requires_human", False),
-            purpose=t["purpose"],
-            cta=t["cta"],
-            brief=t["brief"],
-            fallback_message=t.get("fallback_message"),
-            active=t["active"],
-        )
-        for t in templates
-    ]
+    return [_template_response(t) for t in templates]
 
 
-@router.put("/templates/{touchpoint_key}", response_model=TemplateResponse)
+@router.post("/templates", response_model=TemplateResponse, dependencies=[Depends(require_admin_token)])
+async def create_template(payload: TemplateCreate):
+    """Create a new automated message template for future member journeys."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+
+    key_base = re.sub(r"[^a-z0-9]+", "_", payload.name.lower()).strip("_") or "message"
+    touchpoint_key = f"custom_{int(datetime.now(timezone.utc).timestamp())}_{key_base[:32]}"
+
+    result = await upsert_template(
+        client_id=client["id"],
+        touchpoint_key=touchpoint_key,
+        name=payload.name,
+        day=payload.day,
+        send_time=_validate_send_time(payload.send_time),
+        phase=payload.phase,
+        automation=payload.automation,
+        conditional=payload.conditional,
+        requires_human=payload.requires_human,
+        purpose=payload.purpose,
+        cta=payload.cta or "",
+        brief=payload.brief,
+        fallback_message=payload.fallback_message,
+        active=payload.active,
+    )
+
+    return _template_response(result)
+
+
+@router.put("/templates/{touchpoint_key}", response_model=TemplateResponse, dependencies=[Depends(require_admin_token)])
 async def update_template(touchpoint_key: str, updates: TemplateUpdate):
     """Update a specific template by touchpoint_key."""
     client = await get_default_client()
@@ -209,6 +290,7 @@ async def update_template(touchpoint_key: str, updates: TemplateUpdate):
         touchpoint_key=touchpoint_key,
         name=updates.name if updates.name is not None else existing.get("name"),
         day=updates.day if updates.day is not None else existing.get("day"),
+        send_time=_validate_send_time(updates.send_time if updates.send_time is not None else existing.get("send_time")),
         phase=updates.phase if updates.phase is not None else existing.get("phase"),
         automation=updates.automation if updates.automation is not None else existing.get("automation", True),
         conditional=updates.conditional if updates.conditional is not None else existing.get("conditional", False),
@@ -220,21 +302,7 @@ async def update_template(touchpoint_key: str, updates: TemplateUpdate):
         active=updates.active if updates.active is not None else existing["active"],
     )
 
-    return TemplateResponse(
-        id=str(result["id"]),
-        touchpoint_key=result["touchpoint_key"],
-        name=result.get("name"),
-        day=result.get("day"),
-        phase=result.get("phase"),
-        automation=result.get("automation", True),
-        conditional=result.get("conditional", False),
-        requires_human=result.get("requires_human", False),
-        purpose=result["purpose"],
-        cta=result["cta"],
-        brief=result["brief"],
-        fallback_message=result.get("fallback_message"),
-        active=result["active"],
-    )
+    return _template_response(result)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -251,7 +319,7 @@ class TimingConfigResponse(BaseModel):
     engagement_days: int
 
 
-@router.get("/settings/timing", response_model=TimingConfigResponse)
+@router.get("/settings/timing", response_model=TimingConfigResponse, dependencies=[Depends(require_admin_token)])
 async def get_timing_settings():
     """Get timing configuration (from env vars, not stored in DB)."""
     return TimingConfigResponse(
@@ -262,3 +330,37 @@ async def get_timing_settings():
         engagement_threshold=app_settings.engagement_threshold,
         engagement_days=app_settings.engagement_days,
     )
+
+
+@router.get("/whatsapp/status", dependencies=[Depends(require_admin_token)])
+async def get_whatsapp_status():
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{app_settings.whatsapp_bridge_url}/health")
+        response.raise_for_status()
+        return response.json()
+
+
+@router.get("/whatsapp/qr", dependencies=[Depends(require_admin_token)])
+async def get_whatsapp_qr():
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{app_settings.whatsapp_bridge_url}/qr")
+        response.raise_for_status()
+        return response.json()
+
+
+@router.get("/whatsapp/qr.png", dependencies=[Depends(require_admin_token)])
+async def get_whatsapp_qr_image():
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{app_settings.whatsapp_bridge_url}/qr")
+        response.raise_for_status()
+        data = response.json()
+
+    qr_value = data.get("qr")
+    if not qr_value:
+        raise HTTPException(status_code=404, detail=data.get("message", "QR code not available"))
+
+    image = qrcode.make(qr_value)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+    return StreamingResponse(buffer, media_type="image/png")

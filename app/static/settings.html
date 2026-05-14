@@ -3,22 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OnboardMe Settings</title>
+    <title>OnboardMe Admin</title>
     <link rel="stylesheet" href="/static/settings.css" />
   </head>
   <body>
-    <main class="shell">
+    <section id="login-screen" class="login-screen">
+      <form id="login-form" class="login-box">
+        <p class="eyebrow">OnboardMe</p>
+        <h1>Admin Access</h1>
+        <label>
+          Access token
+          <input name="token" type="password" autocomplete="current-password" autofocus />
+        </label>
+        <button class="primary" type="submit">Enter</button>
+        <p id="login-error" class="error"></p>
+      </form>
+    </section>
+
+    <main id="app-shell" class="shell hidden">
       <aside class="sidebar">
         <div>
           <p class="eyebrow">OnboardMe</p>
-          <h1>Journey Control</h1>
+          <h1>Control Room</h1>
         </div>
         <nav class="nav">
           <button class="nav-item active" data-panel="community">Community</button>
           <button class="nav-item" data-panel="templates">Messages</button>
+          <button class="nav-item" data-panel="whatsapp">WhatsApp</button>
           <button class="nav-item" data-panel="timing">Timing</button>
         </nav>
-        <p id="status" class="status">Loading settings...</p>
+        <div class="sidebar-bottom">
+          <p id="status" class="status">Loading settings...</p>
+          <button id="logout" class="ghost">Log out</button>
+        </div>
       </aside>
 
       <section class="workspace">
@@ -32,48 +49,27 @@
           </div>
 
           <form id="community-form" class="form-grid">
-            <label>
-              Community name
-              <input name="community_name" autocomplete="off" />
-            </label>
-            <label>
-              Agent name
-              <input name="agent_name" autocomplete="off" />
-            </label>
-            <label class="wide">
-              Community description
-              <textarea name="community_description" rows="5"></textarea>
-            </label>
-            <label class="wide">
-              Agent tone
-              <input name="agent_tone" autocomplete="off" />
-            </label>
-            <label>
-              Invite link
-              <input name="invite_link" autocomplete="off" />
-            </label>
-            <label>
-              Calendly link
-              <input name="calendly_link" autocomplete="off" />
-            </label>
-            <label>
-              Founder Stories link
-              <input name="founder_stories_link" autocomplete="off" />
-            </label>
-            <label>
-              Operator Session link
-              <input name="operator_session_link" autocomplete="off" />
-            </label>
+            <label>Community name <input name="community_name" autocomplete="off" /></label>
+            <label>Agent name <input name="agent_name" autocomplete="off" /></label>
+            <label class="wide">Community description <textarea name="community_description" rows="5"></textarea></label>
+            <label class="wide">Agent tone <input name="agent_tone" autocomplete="off" /></label>
+            <label>Invite link <input name="invite_link" autocomplete="off" /></label>
+            <label>Calendly link <input name="calendly_link" autocomplete="off" /></label>
+            <label>Founder Stories link <input name="founder_stories_link" autocomplete="off" /></label>
+            <label>Operator Session link <input name="operator_session_link" autocomplete="off" /></label>
           </form>
         </section>
 
         <section id="templates" class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">90-day journey</p>
-              <h2>Message Templates</h2>
+              <p class="eyebrow">Journey messages</p>
+              <h2>Message Schedule</h2>
             </div>
-            <button id="save-template" class="primary">Save selected</button>
+            <div class="actions">
+              <button id="new-template" class="secondary">New message</button>
+              <button id="save-template" class="primary">Save</button>
+            </div>
           </div>
 
           <div class="template-layout">
@@ -82,20 +78,15 @@
             <form id="template-form" class="template-editor">
               <div class="editor-topline">
                 <div>
-                  <p id="template-key" class="template-key">Select a touchpoint</p>
-                  <input name="name" class="template-title-input" placeholder="Touchpoint name" />
+                  <p id="template-key" class="template-key">Select a message</p>
+                  <input name="name" class="template-title-input" placeholder="Message name" />
                 </div>
-                <label class="switch">
-                  <input name="active" type="checkbox" />
-                  <span>Active</span>
-                </label>
+                <label class="switch"><input name="active" type="checkbox" /> Active</label>
               </div>
 
               <div class="compact-grid">
-                <label>
-                  Day
-                  <input name="day" type="number" min="1" step="1" />
-                </label>
+                <label>Day after onboarding <input name="day" type="number" min="1" step="1" /></label>
+                <label>Send time <input name="send_time" type="time" /></label>
                 <label>
                   Phase
                   <select name="phase">
@@ -104,31 +95,40 @@
                     <option value="consolidation">Consolidation</option>
                   </select>
                 </label>
+                <label class="switch inline"><input name="automation" type="checkbox" /> Automated</label>
               </div>
 
               <div class="toggle-row">
-                <label><input name="automation" type="checkbox" /> Automated</label>
                 <label><input name="conditional" type="checkbox" /> Conditional</label>
                 <label><input name="requires_human" type="checkbox" /> Human action</label>
               </div>
 
-              <label>
-                Purpose
-                <textarea name="purpose" rows="3"></textarea>
-              </label>
-              <label>
-                CTA
-                <textarea name="cta" rows="3"></textarea>
-              </label>
-              <label>
-                Brief
-                <textarea name="brief" rows="5"></textarea>
-              </label>
-              <label>
-                Fallback message
-                <textarea name="fallback_message" rows="3"></textarea>
-              </label>
+              <label>Purpose <textarea name="purpose" rows="3"></textarea></label>
+              <label>CTA or link <textarea name="cta" rows="3" placeholder="Optional. Example: get them to book a call, reply, or click a link."></textarea></label>
+              <label>Message brief <textarea name="brief" rows="5"></textarea></label>
+              <label>Fallback message <textarea name="fallback_message" rows="3"></textarea></label>
             </form>
+          </div>
+        </section>
+
+        <section id="whatsapp" class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Bridge</p>
+              <h2>WhatsApp Connection</h2>
+            </div>
+            <button id="refresh-whatsapp" class="primary">Refresh</button>
+          </div>
+          <div class="whatsapp-grid">
+            <div class="connection-card">
+              <span>Status</span>
+              <strong id="whatsapp-state">Checking...</strong>
+              <p id="whatsapp-detail"></p>
+            </div>
+            <div class="qr-card">
+              <img id="qr-image" alt="WhatsApp QR code" />
+              <p id="qr-message">QR appears here when the bridge needs pairing.</p>
+            </div>
           </div>
         </section>
 
