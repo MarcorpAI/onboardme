@@ -26,6 +26,7 @@ let currentSock = null;
 let currentQR = null;
 let isConnected = false;
 let isReady = false;
+let isResettingSession = false;
 
 const RECONNECT_DELAY_MS = 8000;
 
@@ -80,6 +81,15 @@ function getLidFromPhone(phone) {
   return phoneToLid.get(clean) || phoneToLid.get(phone) || null;
 }
 
+function clearSessionFiles() {
+  try {
+    fs.rmSync(SESSION_PATH, { recursive: true, force: true });
+    fs.mkdirSync(SESSION_PATH, { recursive: true });
+  } catch (error) {
+    logger.warn({ error: error.message }, 'Failed to clear session path');
+  }
+}
+
 export function getConnectionStatus() {
   return {
     connected: isConnected,
@@ -89,6 +99,8 @@ export function getConnectionStatus() {
 }
 
 export async function disconnectAndClearSession() {
+  isResettingSession = true;
+
   try {
     if (currentSock?.logout) {
       await currentSock.logout();
@@ -106,14 +118,12 @@ export async function disconnectAndClearSession() {
   lidToPhone = new Map();
   phoneToLid = new Map();
 
-  try {
-    fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-    fs.mkdirSync(SESSION_PATH, { recursive: true });
-  } catch (error) {
-    logger.warn({ error: error.message }, 'Failed to clear session path');
-  }
+  clearSessionFiles();
 
-  setTimeout(startSock, 1000);
+  setTimeout(() => {
+    isResettingSession = false;
+    startSock();
+  }, 1500);
   logger.info('WhatsApp session cleared, restarting socket');
 }
 
@@ -235,6 +245,12 @@ async function startSock() {
 
         if (errorCode === DisconnectReason?.loggedOut || errorCode === 'logout') {
           logger.error('Session logged out');
+          currentQR = null;
+          clearSessionFiles();
+          if (!isResettingSession) {
+            logger.info(`Starting fresh session in ${RECONNECT_DELAY_MS / 1000}s...`);
+            setTimeout(startSock, RECONNECT_DELAY_MS);
+          }
           return;
         }
 
