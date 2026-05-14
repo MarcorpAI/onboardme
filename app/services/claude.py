@@ -133,6 +133,24 @@ class ClaudeService:
             formatted.append({"role": role, "content": msg["content"]})
         return formatted
 
+    def _build_opening_instruction(self, template: Optional[Dict[str, Any]]) -> str:
+        if not template:
+            return (
+                "Start this free-form WhatsApp conversation now. Keep it brief and useful. "
+                "Do not send a Day 1 welcome unless the context explicitly says this is a welcome."
+            )
+
+        return (
+            "Write the opening WhatsApp message for THIS scheduled touchpoint only.\n"
+            f"Touchpoint key: {template.get('touchpoint_key', '')}\n"
+            f"Purpose: {template.get('purpose', '')}\n"
+            f"CTA: {template.get('cta', '')}\n"
+            f"Brief: {template.get('brief', '')}\n\n"
+            "Important: do not reuse a previous welcome or Day 1 opener unless this touchpoint is explicitly a welcome. "
+            "If this is a follow-up, reminder, check-in, invite, feedback request, or escalation, write that specific message. "
+            "Keep it to 1-3 sentences and make the CTA clear when appropriate."
+        )
+
     async def generate_response(
         self,
         client_data: Dict[str, Any],
@@ -156,10 +174,7 @@ class ClaudeService:
             logger.warning("generate_response called with empty history")
             messages = [{
                 "role": "member",
-                "content": (
-                    "Start this touchpoint now. Write the opening WhatsApp message. "
-                    "Use the touchpoint context, keep it natural, and make sure it clearly moves toward the CTA."
-                ),
+                "content": self._build_opening_instruction(template),
             }]
 
         system_prompt = self._build_system_prompt(client_data, member, template)
