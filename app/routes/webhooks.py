@@ -45,6 +45,19 @@ from app.services.whatsapp import whatsapp_service
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhooks"])
 
+REPLY_COMPLETES_TOUCHPOINT_KEYS = {
+    "day_1_welcome",
+    "day_1_orientation_checklist",
+    "day_3_no_response",
+    "day_5_checkin",
+    "day_7_focus",
+    "day_14_two_week_checkin",
+    "day_21_yellow_flag",
+    "day_28_four_week_checkin",
+    "day_30_wellbeing",
+    "day_42_session_feedback",
+}
+
 
 # ═══════════════════════════════════════════════════════════
 # Pydantic Models
@@ -340,7 +353,12 @@ async def handle_inbound(data: dict):
 
         # ─── Step 13: Check for CTA completion ───
         if template and touchpoint_key:
-            cta_delivered = _detect_cta_completion(response_text, template, touchpoint_key)
+            cta_delivered = _detect_cta_completion(
+                response_text=response_text,
+                template=template,
+                touchpoint_key=touchpoint_key,
+                messages=messages,
+            )
             if cta_delivered:
                 tp = await get_touchpoint_by_conversation(conversation_id)
                 if tp and tp["state"] == "in_conversation":
@@ -369,6 +387,7 @@ def _detect_cta_completion(
     agent_response: str,
     template: dict,
     touchpoint_key: str,
+    messages: Optional[List[dict]] = None,
 ) -> bool:
     """
     Detect whether the AI's response indicates the CTA has been delivered
@@ -380,6 +399,10 @@ def _detect_cta_completion(
     - The member has given a clear answer and the AI has acknowledged it warmly
       and signalled closure (for day_7, day_5, day_28, etc.)
     """
+    has_member_reply = any(msg.get("role") == "member" for msg in (messages or []))
+    if has_member_reply and touchpoint_key in REPLY_COMPLETES_TOUCHPOINT_KEYS:
+        return True
+
     # Check if invite link was shared
     from app.config import settings
     if settings.invite_link and settings.invite_link in agent_response:

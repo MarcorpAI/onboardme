@@ -19,6 +19,7 @@ from typing import Optional
 from app.services.database import (
     get_default_client,
     upsert_default_client,
+    update_default_client,
     get_templates_for_client,
     upsert_template,
 )
@@ -180,51 +181,26 @@ async def get_settings():
 @router.put("/settings", response_model=ClientSettingsResponse, dependencies=[Depends(require_admin_token)])
 async def update_settings(updates: ClientSettingsUpdate):
     """Update client/community settings. Changes take effect immediately."""
-    from app.config import settings as cfg
-
-    # Merge updates with existing env defaults for fields not in DB
     current = await get_default_client()
     if not current:
-        # Create default client from env vars if it doesn't exist
         current = await upsert_default_client()
 
-    # We need to update the client in the DB
-    # The simplest way: update env-backed defaults via upsert
-    # But we want DB-stored overrides to persist
-    # Temporarily patch settings for the upsert
-    if updates.community_name is not None:
-        cfg.community_name = updates.community_name
-    if updates.community_description is not None:
-        cfg.community_description = updates.community_description
-    if updates.agent_name is not None:
-        cfg.agent_name = updates.agent_name
-    if updates.agent_tone is not None:
-        cfg.agent_tone = updates.agent_tone
-    if updates.invite_link is not None:
-        cfg.invite_link = updates.invite_link
-    if updates.calendly_link is not None:
-        cfg.calendly_link = updates.calendly_link
-    if updates.founder_stories_link is not None:
-        cfg.founder_stories_link = updates.founder_stories_link
-    if updates.operator_session_link is not None:
-        cfg.operator_session_link = updates.operator_session_link
-    if updates.human_escalation_whatsapp is not None:
-        cfg.human_escalation_whatsapp = updates.human_escalation_whatsapp
-
-    client = await upsert_default_client()
+    client_updates = updates.model_dump(exclude_unset=True)
+    client_updates.pop("human_escalation_whatsapp", None)
+    client = await update_default_client(**client_updates) if client_updates else current
 
     return ClientSettingsResponse(
-        client_name=client.get("name", cfg.client_name),
-        community_name=client.get("community_name", cfg.community_name),
-        community_description=client.get("community_description", cfg.community_description),
-        agent_name=client.get("agent_name", cfg.agent_name),
-        agent_tone=client.get("agent_tone", cfg.agent_tone),
-        webhook_secret=client.get("webhook_secret", cfg.webhook_secret),
-        invite_link=client.get("invite_link", cfg.invite_link),
-        calendly_link=client.get("calendly_link", cfg.calendly_link),
-        founder_stories_link=client.get("founder_stories_link", cfg.founder_stories_link),
-        operator_session_link=client.get("operator_session_link", cfg.operator_session_link),
-        human_escalation_whatsapp=cfg.human_escalation_whatsapp,
+        client_name=client.get("name", app_settings.client_name),
+        community_name=client.get("community_name", app_settings.community_name),
+        community_description=client.get("community_description", app_settings.community_description),
+        agent_name=client.get("agent_name", app_settings.agent_name),
+        agent_tone=client.get("agent_tone", app_settings.agent_tone),
+        webhook_secret=client.get("webhook_secret", app_settings.webhook_secret),
+        invite_link=client.get("invite_link", app_settings.invite_link),
+        calendly_link=client.get("calendly_link", app_settings.calendly_link),
+        founder_stories_link=client.get("founder_stories_link", app_settings.founder_stories_link),
+        operator_session_link=client.get("operator_session_link", app_settings.operator_session_link),
+        human_escalation_whatsapp=app_settings.human_escalation_whatsapp,
     )
 
 

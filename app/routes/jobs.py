@@ -34,6 +34,7 @@ from app.services.journey import (
     escalate_human_touchpoint,
     fire_nudge,
     TOUCHPOINT_MAP,
+    can_fire_touchpoint,
 )
 from app.services.whatsapp import whatsapp_service
 
@@ -56,6 +57,17 @@ async def fire_pending_touchpoints():
 
     results = []
     for tp in pending_human:
+        eligible, reason = await can_fire_touchpoint(tp)
+        if not eligible:
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "deferred",
+                "reason": reason,
+            })
+            continue
+
         success = await escalate_human_touchpoint(tp["id"])
         results.append({
             "touchpoint_id": str(tp["id"]),
@@ -65,6 +77,17 @@ async def fire_pending_touchpoints():
         })
 
     for tp in pending:
+        eligible, reason = await can_fire_touchpoint(tp)
+        if not eligible:
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "deferred",
+                "reason": reason,
+            })
+            continue
+
         success = await fire_touchpoint(tp["id"])
         results.append({
             "touchpoint_id": str(tp["id"]),
@@ -75,14 +98,16 @@ async def fire_pending_touchpoints():
 
     fired = sum(1 for r in results if r["status"] == "fired")
     escalated = sum(1 for r in results if r["status"] == "escalated")
+    deferred = sum(1 for r in results if r["status"] == "deferred")
     failed = sum(1 for r in results if r["status"] == "failed")
 
-    logger.info(f"fire-touchpoints: {fired} fired, {escalated} escalated, {failed} failed")
+    logger.info(f"fire-touchpoints: {fired} fired, {escalated} escalated, {deferred} deferred, {failed} failed")
 
     return {
         "processed": len(pending) + len(pending_human),
         "fired": fired,
         "escalated": escalated,
+        "deferred": deferred,
         "failed": failed,
         "results": results,
     }

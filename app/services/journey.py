@@ -22,7 +22,9 @@ from app.services.database import (
     get_template,
     get_templates_for_client,
     get_touchpoint_with_member,
+    get_touchpoints_by_member,
     get_conversation_messages,
+    close_conversation,
     update_touchpoint,
 )
 from app.services.groq import groq_service
@@ -296,10 +298,69 @@ TOUCHPOINT_SCHEDULE: List[TouchpointDef] = [
 # Index touchpoints by key for quick lookup
 TOUCHPOINT_MAP: Dict[str, TouchpointDef] = {tp["key"]: tp for tp in TOUCHPOINT_SCHEDULE}
 
+PROGRESS_GATE_EXEMPT_KEYS = {
+    "day_3_no_response",
+}
+
+PROGRESS_BLOCKING_TOUCHPOINT_KEYS = {
+    "day_1_welcome",
+    "day_1_orientation_checklist",
+    "day_3_no_response",
+    "day_60_review_call",
+}
+
+UNRESOLVED_STATES = {"pending", "in_conversation", "needs_human"}
+
 
 def get_scheduled_touchpoints() -> List[TouchpointDef]:
     """Return all touchpoints that are eligible for automated scheduling."""
     return [tp for tp in TOUCHPOINT_SCHEDULE if tp["automation"] or tp["requires_human"]]
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def can_fire_touchpoint(touchpoint: Dict[str, Any]) -> tuple[bool, str]:
+    """
+    Treat scheduled_for as the earliest eligible time.
+    Normal touchpoints wait while the member has an unresolved active/earlier step.
+    """
+    touchpoint_key = touchpoint["touchpoint_key"]
+    if touchpoint_key in PROGRESS_GATE_EXEMPT_KEYS:
+        return True, "exempt"
+
+    scheduled_for = _parse_iso_datetime(touchpoint.get("scheduled_for"))
+    member_touchpoints = await get_touchpoints_by_member(touchpoint["member_id"])
+
+    for other in member_touchpoints:
+        if other["id"] == touchpoint["id"]:
+            continue
+
+        other_state = other.get("state")
+        other_key = other.get("touchpoint_key")
+        other_scheduled_for = _parse_iso_datetime(other.get("scheduled_for"))
+
+        if other_state == "in_conversation":
+            return False, f"active touchpoint {other_key} is still in conversation"
+
+        if (
+            scheduled_for
+            and other_scheduled_for
+            and other_scheduled_for < scheduled_for
+            and other_state in UNRESOLVED_STATES
+            and other_key in PROGRESS_BLOCKING_TOUCHPOINT_KEYS
+        ):
+            return False, f"earlier blocking touchpoint {other_key} is unresolved"
+
+    return True, "eligible"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -460,6 +521,13 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
 
         # 9. Update touchpoint state to 'in_conversation'
         await set_touchpoint_fired(touchpoint_id, conversation_id)
+
+        if touchpoint_key == "day_3_no_response":
+            for prior in await get_touchpoints_by_member(member["id"]):
+                if prior["touchpoint_key"] == "day_1_welcome" and prior["state"] in UNRESOLVED_STATES:
+                    if prior.get("conversation_id"):
+                        await close_conversation(prior["conversation_id"])
+                    await complete_touchpoint(prior["id"])
 
         # 10. Store JID if bridge returned new one and we don't have it
         if jid and not member.get("whatsapp_lid"):

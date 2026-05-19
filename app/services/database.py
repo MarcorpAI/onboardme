@@ -157,7 +157,7 @@ async def get_default_client() -> Optional[Dict[str, Any]]:
 
 async def upsert_default_client() -> Dict[str, Any]:
     """
-    Create or update the default client from env settings.
+    Create the default client from env settings if one does not exist.
     Returns the client dict.
     """
     async with async_session_maker() as db:
@@ -166,16 +166,8 @@ async def upsert_default_client() -> Dict[str, Any]:
         client = result.scalar_one_or_none()
 
         if client:
-            client.name = settings.client_name
-            client.community_name = settings.community_name
-            client.community_description = settings.community_description
-            client.agent_name = settings.agent_name
-            client.agent_tone = settings.agent_tone
-            client.webhook_secret = settings.webhook_secret
-            client.invite_link = settings.invite_link
-            client.calendly_link = settings.calendly_link
-            client.founder_stories_link = settings.founder_stories_link
-            client.operator_session_link = settings.operator_session_link
+            logger.info(f"Default client loaded: {client.id} ({client.community_name})")
+            return _client_to_dict(client)
         else:
             client = Client(
                 name=settings.client_name,
@@ -193,7 +185,78 @@ async def upsert_default_client() -> Dict[str, Any]:
 
         await db.commit()
         await db.refresh(client)
-        logger.info(f"Default client synced: {client.id} ({client.community_name})")
+        logger.info(f"Default client created: {client.id} ({client.community_name})")
+        return _client_to_dict(client)
+
+
+async def update_default_client(**updates) -> Dict[str, Any]:
+    """Update DB-backed default client settings without falling back to env values."""
+    async with async_session_maker() as db:
+        stmt = select(Client).limit(1)
+        result = await db.execute(stmt)
+        client = result.scalar_one_or_none()
+
+        if not client:
+            client = Client(
+                name=settings.client_name,
+                community_name=settings.community_name,
+                community_description=settings.community_description,
+                agent_name=settings.agent_name,
+                agent_tone=settings.agent_tone,
+                webhook_secret=settings.webhook_secret,
+                invite_link=settings.invite_link,
+                calendly_link=settings.calendly_link,
+                founder_stories_link=settings.founder_stories_link,
+                operator_session_link=settings.operator_session_link,
+            )
+            db.add(client)
+        else:
+            for key, value in updates.items():
+                if value is not None and hasattr(client, key):
+                    setattr(client, key, value)
+
+        await db.commit()
+        await db.refresh(client)
+        logger.info(f"Default client updated: {client.id} ({client.community_name})")
+        return _client_to_dict(client)
+
+
+async def sync_default_client_from_env() -> Dict[str, Any]:
+    """Force-sync the default client from env settings."""
+    async with async_session_maker() as db:
+        stmt = select(Client).limit(1)
+        result = await db.execute(stmt)
+        client = result.scalar_one_or_none()
+
+        if not client:
+            client = Client(
+                name=settings.client_name,
+                community_name=settings.community_name,
+                community_description=settings.community_description,
+                agent_name=settings.agent_name,
+                agent_tone=settings.agent_tone,
+                webhook_secret=settings.webhook_secret,
+                invite_link=settings.invite_link,
+                calendly_link=settings.calendly_link,
+                founder_stories_link=settings.founder_stories_link,
+                operator_session_link=settings.operator_session_link,
+            )
+            db.add(client)
+        else:
+            client.name = settings.client_name
+            client.community_name = settings.community_name
+            client.community_description = settings.community_description
+            client.agent_name = settings.agent_name
+            client.agent_tone = settings.agent_tone
+            client.webhook_secret = settings.webhook_secret
+            client.invite_link = settings.invite_link
+            client.calendly_link = settings.calendly_link
+            client.founder_stories_link = settings.founder_stories_link
+            client.operator_session_link = settings.operator_session_link
+
+        await db.commit()
+        await db.refresh(client)
+        logger.info(f"Default client force-synced from env: {client.id} ({client.community_name})")
         return _client_to_dict(client)
 
 
