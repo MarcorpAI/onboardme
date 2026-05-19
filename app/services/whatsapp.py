@@ -1,6 +1,7 @@
 import httpx
 import logging
 from app.config import settings
+from app.services.message_formatting import normalize_message_links
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,7 @@ class WhatsAppService:
         self.bridge_url = bridge_url or settings.whatsapp_bridge_url
 
     async def send_message(self, to: str, message: str):
+        message = normalize_message_links(message)
         payload = {
             "to": to,
             "message": message

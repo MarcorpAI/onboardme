@@ -73,6 +73,7 @@ class GroqService:
                 "- The CTA is the goal of this touchpoint. Every reply should either move one small step toward it, deliver it, or close after it is accepted.",
                 "- Be conversational, but do not drift into general chat once you have enough context to make the ask.",
                 "- If the CTA needs a link and the relevant link is available below, include it when making the ask.",
+                "- When sharing a link, put the full URL on its own line. Do not put commas, full stops, brackets, or extra words on the same line as the URL.",
                 "- If the member's latest message gives enough information, acknowledge it briefly and make the CTA explicit in the same reply.",
                 "- If you still need information before the CTA, ask exactly one short question that helps you make the CTA naturally.",
             ]
