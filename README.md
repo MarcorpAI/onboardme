@@ -92,3 +92,10 @@ docker compose -f docker-compose.oracle.yml up --build api
 
 The seed command upserts the MBN WhatsApp onboarding templates for the default
 client. It does not delete custom templates.
+
+For a fresh project where you want to remove all existing/custom templates and
+seed only the MBN defaults:
+
+```bash
+docker compose -f docker-compose.oracle.yml run --rm api python -m app.scripts.seed_mbn_templates --reset
+```

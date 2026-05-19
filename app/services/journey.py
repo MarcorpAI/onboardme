@@ -299,6 +299,7 @@ TOUCHPOINT_SCHEDULE: List[TouchpointDef] = [
 TOUCHPOINT_MAP: Dict[str, TouchpointDef] = {tp["key"]: tp for tp in TOUCHPOINT_SCHEDULE}
 
 PROGRESS_GATE_EXEMPT_KEYS = {
+    "day_1_orientation_checklist",
     "day_3_no_response",
 }
 
@@ -522,9 +523,16 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
         # 9. Update touchpoint state to 'in_conversation'
         await set_touchpoint_fired(touchpoint_id, conversation_id)
 
-        if touchpoint_key == "day_3_no_response":
+        if touchpoint_key == "day_1_orientation_checklist":
             for prior in await get_touchpoints_by_member(member["id"]):
                 if prior["touchpoint_key"] == "day_1_welcome" and prior["state"] in UNRESOLVED_STATES:
+                    if prior.get("conversation_id"):
+                        await close_conversation(prior["conversation_id"])
+                    await complete_touchpoint(prior["id"])
+
+        if touchpoint_key == "day_3_no_response":
+            for prior in await get_touchpoints_by_member(member["id"]):
+                if prior["touchpoint_key"] in {"day_1_welcome", "day_1_orientation_checklist"} and prior["state"] in UNRESOLVED_STATES:
                     if prior.get("conversation_id"):
                         await close_conversation(prior["conversation_id"])
                     await complete_touchpoint(prior["id"])
@@ -709,7 +717,7 @@ async def _has_no_d1_reply(member_id: uuid.UUID) -> bool:
     from app.services.database import get_touchpoints_by_member
     touchpoints = await get_touchpoints_by_member(member_id)
 
-    d1_keys = {"day_1_welcome"}
+    d1_keys = {"day_1_welcome", "day_1_orientation_checklist"}
     for tp in touchpoints:
         if tp["touchpoint_key"] in d1_keys:
             conv_id = tp.get("conversation_id")

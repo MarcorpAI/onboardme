@@ -36,6 +36,7 @@ from app.services.database import (
 from app.services.journey import (
     schedule_journey,
     fire_touchpoint,
+    can_fire_touchpoint,
     TOUCHPOINT_MAP,
     get_scheduled_touchpoints,
 )
@@ -164,16 +165,25 @@ async def handle_onboard(
         touchpoint_count = await schedule_journey(member_id, approved_at, client_id)
         logger.info(f"Scheduled {touchpoint_count} touchpoints for member {member_id}")
 
-        # 7. Fire Day 1 Welcome immediately
+        # 7. Fire due Day 1 automated touchpoints immediately.
+        # Day 1 can contain more than one WhatsApp message in the MBN journey.
         day1_touchpoints = await get_touchpoints_by_member(member_id)
         fired_count = 0
         for tp in day1_touchpoints:
-            if tp["touchpoint_key"] == "day_1_welcome" and tp["state"] == "pending":
+            scheduled_for = datetime.fromisoformat(tp["scheduled_for"].replace("Z", "+00:00"))
+            eligible, _ = await can_fire_touchpoint(tp)
+            if (
+                tp["touchpoint_key"].startswith("day_1_")
+                and tp["state"] == "pending"
+                and not tp.get("requires_human")
+                and scheduled_for <= datetime.now(timezone.utc)
+                and eligible
+            ):
                 success = await fire_touchpoint(tp["id"])
                 if success:
                     fired_count += 1
 
-        logger.info(f"Fired {fired_count} Day 1 touchpoints for member {member_id}")
+        logger.info(f"Fired {fired_count} due Day 1 touchpoints for member {member_id}")
 
         # 8. If no Day 1 touchpoint fired successfully (e.g. WhatsApp send failed),
         #    the member is created but journey starts when fire-touchpoints cron picks up

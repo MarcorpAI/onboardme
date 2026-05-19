@@ -355,6 +355,19 @@ async def upsert_template(client_id: uuid.UUID, touchpoint_key: str, purpose: st
         return _template_to_dict(t)
 
 
+async def delete_templates_for_client(client_id: uuid.UUID) -> int:
+    """Delete all templates for a client. Intended for explicit admin resets."""
+    async with async_session_maker() as db:
+        stmt = select(Template).where(Template.client_id == client_id)
+        result = await db.execute(stmt)
+        templates = result.scalars().all()
+        count = len(templates)
+        for template in templates:
+            await db.delete(template)
+        await db.commit()
+        return count
+
+
 async def sync_template_metadata(client_id: uuid.UUID, touchpoint_key: str, **metadata):
     """Update schedule metadata without overwriting editable message copy."""
     async with async_session_maker() as db:

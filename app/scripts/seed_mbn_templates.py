@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import settings
 from app.data.mbn_templates import MBN_TEMPLATES, validate_mbn_templates
 from app.services.database import (
+    delete_templates_for_client,
     get_default_client,
     get_templates_for_client,
     init_db,
@@ -47,11 +48,11 @@ def _diff(existing: dict[str, Any] | None, template: dict[str, Any]) -> dict[str
     return changes
 
 
-async def seed_templates(apply: bool) -> int:
+async def seed_templates(apply: bool, reset: bool = False) -> int:
     validate_mbn_templates()
 
     try:
-        if apply:
+        if apply or reset:
             await init_db()
             client = await upsert_default_client()
         else:
@@ -69,6 +70,13 @@ async def seed_templates(apply: bool) -> int:
     client_id = client["id"]
     existing_templates = await get_templates_for_client(client_id, include_inactive=True)
     existing_by_key = {template["touchpoint_key"]: template for template in existing_templates}
+
+    if reset:
+        print(f"reset: deleting {len(existing_templates)} existing templates for default client")
+        deleted = await delete_templates_for_client(client_id)
+        print(f"reset: deleted {deleted} templates")
+        existing_templates = []
+        existing_by_key = {}
 
     created = 0
     updated = 0
@@ -93,7 +101,7 @@ async def seed_templates(apply: bool) -> int:
         changed_fields = ", ".join(changes.keys())
         print(f"{action}: {key} ({changed_fields})")
 
-        if apply:
+        if apply or reset:
             await upsert_template(
                 client_id=client_id,
                 touchpoint_key=key,
@@ -111,7 +119,7 @@ async def seed_templates(apply: bool) -> int:
                 active=template["active"],
             )
 
-    mode = "applied" if apply else "dry-run"
+    mode = "reset-applied" if reset else "applied" if apply else "dry-run"
     print(
         f"MBN template seed {mode}: {created} to create, "
         f"{updated} to update, {unchanged} unchanged."
@@ -124,12 +132,17 @@ def parse_args() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="Show changes without writing to the database.")
     mode.add_argument("--apply", action="store_true", help="Upsert MBN templates into the database.")
+    mode.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete all existing templates for the default client, then seed only the MBN templates.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    raise SystemExit(asyncio.run(seed_templates(apply=args.apply)))
+    raise SystemExit(asyncio.run(seed_templates(apply=args.apply, reset=args.reset)))
 
 
 if __name__ == "__main__":
