@@ -22,7 +22,7 @@ from pathlib import Path
 
 from app.routes import webhooks, jobs, settings
 from app.config import settings as app_settings
-from app.services.database import init_db, upsert_default_client, get_templates_for_client, upsert_template, sync_template_metadata
+from app.services.database import init_db, upsert_default_client, get_templates_for_client, upsert_template
 from app.services.journey import TOUCHPOINT_SCHEDULE, run_automation_loop
 
 logging.basicConfig(
@@ -92,17 +92,6 @@ async def startup_event():
                 active=True,
             )
             seeded += 1
-        else:
-            await sync_template_metadata(
-                client_id=client_id,
-                touchpoint_key=key,
-                name=tp_def["name"],
-                day=tp_def["day"],
-                phase=tp_def["phase"],
-                automation=tp_def["automation"],
-                conditional=tp_def["conditional"],
-                requires_human=tp_def["requires_human"],
-            )
 
     if seeded:
         logger.info(f"Seeded {seeded} new templates")

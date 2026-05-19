@@ -77,3 +77,18 @@ Set up these endpoints as cron jobs on your hosting platform:
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
+
+## MBN Template Seeding
+
+For the Oracle-hosted compose setup with Neon, set `DATABASE_URL` in `.env`
+first, then run:
+
+```bash
+docker compose -f docker-compose.oracle.yml build api
+docker compose -f docker-compose.oracle.yml run --rm api python -m app.scripts.seed_mbn_templates --dry-run
+docker compose -f docker-compose.oracle.yml run --rm api python -m app.scripts.seed_mbn_templates --apply
+docker compose -f docker-compose.oracle.yml up --build api
+```
+
+The seed command upserts the MBN WhatsApp onboarding templates for the default
+client. It does not delete custom templates.
