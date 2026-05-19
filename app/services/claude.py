@@ -71,7 +71,7 @@ class ClaudeService:
                 "Current touchpoint:",
                 f"- Purpose: {template.get('purpose', 'Continue the conversation')}",
                 f"- CTA: {template.get('cta', 'Keep the member engaged')}",
-                f"- Context: {template.get('brief', '')}",
+                f"- AI rules and action guide: {template.get('brief', '')}",
                 "",
                 "CTA discipline:",
                 "- The CTA is the goal of this touchpoint. Every reply should either move one small step toward it, deliver it, or close after it is accepted.",
