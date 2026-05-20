@@ -124,6 +124,13 @@ async def seed_templates(apply: bool, reset: bool = False) -> int:
         f"MBN template seed {mode}: {created} to create, "
         f"{updated} to update, {unchanged} unchanged."
     )
+
+    if apply or reset:
+        inactive_keys = sorted(template["touchpoint_key"] for template in MBN_TEMPLATES if not template["active"])
+        if inactive_keys:
+            print("Inactive MBN templates will be skipped by the scheduler:")
+            for key in inactive_keys:
+                print(f"- {key}")
     return 0
 
 
