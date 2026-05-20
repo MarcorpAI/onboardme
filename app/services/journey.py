@@ -335,6 +335,9 @@ async def can_fire_touchpoint(touchpoint: Dict[str, Any]) -> tuple[bool, str]:
     Normal touchpoints wait while the member has an unresolved active/earlier step.
     """
     touchpoint_key = touchpoint["touchpoint_key"]
+    if touchpoint.get("requires_human"):
+        return True, "human action"
+
     if touchpoint_key in PROGRESS_GATE_EXEMPT_KEYS:
         return True, "exempt"
 

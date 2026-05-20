@@ -22,6 +22,7 @@ from app.services.database import (
     get_timed_out_touchpoints,
     get_disengaged_members,
     get_default_client,
+    get_template,
     update_touchpoint,
     complete_touchpoint,
     close_conversation,
@@ -55,8 +56,25 @@ async def fire_pending_touchpoints():
     pending_human = await get_pending_human_touchpoints()
     logger.info(f"Found {len(pending)} pending touchpoints and {len(pending_human)} human touchpoints to process")
 
+    client = await get_default_client()
+    if not client:
+        logger.error("No default client found — cannot process touchpoints")
+        return {"error": "No client configured"}
+
     results = []
     for tp in pending_human:
+        template = await get_template(client["id"], tp["touchpoint_key"])
+        if not template or not template.get("active"):
+            await complete_touchpoint(tp["id"])
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "skipped",
+                "reason": "template missing or inactive",
+            })
+            continue
+
         eligible, reason = await can_fire_touchpoint(tp)
         if not eligible:
             results.append({
@@ -77,6 +95,18 @@ async def fire_pending_touchpoints():
         })
 
     for tp in pending:
+        template = await get_template(client["id"], tp["touchpoint_key"])
+        if not template or not template.get("active"):
+            await complete_touchpoint(tp["id"])
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "skipped",
+                "reason": "template missing or inactive",
+            })
+            continue
+
         eligible, reason = await can_fire_touchpoint(tp)
         if not eligible:
             results.append({
@@ -99,15 +129,17 @@ async def fire_pending_touchpoints():
     fired = sum(1 for r in results if r["status"] == "fired")
     escalated = sum(1 for r in results if r["status"] == "escalated")
     deferred = sum(1 for r in results if r["status"] == "deferred")
+    skipped = sum(1 for r in results if r["status"] == "skipped")
     failed = sum(1 for r in results if r["status"] == "failed")
 
-    logger.info(f"fire-touchpoints: {fired} fired, {escalated} escalated, {deferred} deferred, {failed} failed")
+    logger.info(f"fire-touchpoints: {fired} fired, {escalated} escalated, {deferred} deferred, {skipped} skipped, {failed} failed")
 
     return {
         "processed": len(pending) + len(pending_human),
         "fired": fired,
         "escalated": escalated,
         "deferred": deferred,
+        "skipped": skipped,
         "failed": failed,
         "results": results,
     }
