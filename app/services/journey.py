@@ -561,15 +561,19 @@ async def escalate_human_touchpoint(touchpoint_id: uuid.UUID) -> bool:
             logger.error(f"Human touchpoint {touchpoint_id} not found")
             return False
 
-        admin_number = settings.human_escalation_whatsapp.strip()
-        if not admin_number:
-            logger.error("HUMAN_ESCALATION_WHATSAPP is not configured")
-            return False
-
         from app.services.database import get_default_client
         client_data = await get_default_client()
         if not client_data:
             logger.error("No default client found")
+            return False
+
+        admin_number = (
+            client_data.get("human_escalation_whatsapp")
+            or settings.human_escalation_whatsapp
+            or ""
+        ).strip()
+        if not admin_number:
+            logger.error("HUMAN_ESCALATION_WHATSAPP is not configured")
             return False
 
         member = tp_data["member"]

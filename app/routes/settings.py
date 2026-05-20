@@ -174,7 +174,7 @@ async def get_settings():
         calendly_link=client.get("calendly_link", app_settings.calendly_link),
         founder_stories_link=client.get("founder_stories_link", app_settings.founder_stories_link),
         operator_session_link=client.get("operator_session_link", app_settings.operator_session_link),
-        human_escalation_whatsapp=app_settings.human_escalation_whatsapp,
+        human_escalation_whatsapp=client.get("human_escalation_whatsapp") or app_settings.human_escalation_whatsapp,
     )
 
 
@@ -186,7 +186,6 @@ async def update_settings(updates: ClientSettingsUpdate):
         current = await upsert_default_client()
 
     client_updates = updates.model_dump(exclude_unset=True)
-    client_updates.pop("human_escalation_whatsapp", None)
     client = await update_default_client(**client_updates) if client_updates else current
 
     return ClientSettingsResponse(
@@ -200,7 +199,7 @@ async def update_settings(updates: ClientSettingsUpdate):
         calendly_link=client.get("calendly_link", app_settings.calendly_link),
         founder_stories_link=client.get("founder_stories_link", app_settings.founder_stories_link),
         operator_session_link=client.get("operator_session_link", app_settings.operator_session_link),
-        human_escalation_whatsapp=app_settings.human_escalation_whatsapp,
+        human_escalation_whatsapp=client.get("human_escalation_whatsapp") or app_settings.human_escalation_whatsapp,
     )
 
 

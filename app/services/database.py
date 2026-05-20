@@ -76,6 +76,7 @@ def _client_to_dict(c: Client) -> Dict[str, Any]:
         "calendly_link": c.calendly_link,
         "founder_stories_link": c.founder_stories_link,
         "operator_session_link": c.operator_session_link,
+        "human_escalation_whatsapp": c.human_escalation_whatsapp,
     }
 
 
@@ -141,6 +142,7 @@ async def init_db():
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS automation BOOLEAN DEFAULT TRUE"))
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS conditional BOOLEAN DEFAULT FALSE"))
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS requires_human BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS human_escalation_whatsapp TEXT"))
     logger.info("Database tables initialised")
 
 
@@ -180,6 +182,7 @@ async def upsert_default_client() -> Dict[str, Any]:
                 calendly_link=settings.calendly_link,
                 founder_stories_link=settings.founder_stories_link,
                 operator_session_link=settings.operator_session_link,
+                human_escalation_whatsapp=settings.human_escalation_whatsapp,
             )
             db.add(client)
 
@@ -208,6 +211,7 @@ async def update_default_client(**updates) -> Dict[str, Any]:
                 calendly_link=settings.calendly_link,
                 founder_stories_link=settings.founder_stories_link,
                 operator_session_link=settings.operator_session_link,
+                human_escalation_whatsapp=settings.human_escalation_whatsapp,
             )
             db.add(client)
         else:
@@ -240,6 +244,7 @@ async def sync_default_client_from_env() -> Dict[str, Any]:
                 calendly_link=settings.calendly_link,
                 founder_stories_link=settings.founder_stories_link,
                 operator_session_link=settings.operator_session_link,
+                human_escalation_whatsapp=settings.human_escalation_whatsapp,
             )
             db.add(client)
         else:
@@ -253,6 +258,7 @@ async def sync_default_client_from_env() -> Dict[str, Any]:
             client.calendly_link = settings.calendly_link
             client.founder_stories_link = settings.founder_stories_link
             client.operator_session_link = settings.operator_session_link
+            client.human_escalation_whatsapp = settings.human_escalation_whatsapp
 
         await db.commit()
         await db.refresh(client)

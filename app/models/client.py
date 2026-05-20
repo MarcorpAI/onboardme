@@ -20,4 +20,5 @@ class Client(Base):
     calendly_link = Column(Text, nullable=True)
     founder_stories_link = Column(Text, nullable=True)
     operator_session_link = Column(Text, nullable=True)
+    human_escalation_whatsapp = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
