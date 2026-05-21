@@ -364,7 +364,7 @@ async def handle_inbound(data: dict):
         # ─── Step 13: Check for CTA completion ───
         if template and touchpoint_key:
             cta_delivered = _detect_cta_completion(
-                response_text=response_text,
+                agent_response=response_text,
                 template=template,
                 touchpoint_key=touchpoint_key,
                 messages=messages,
