@@ -66,6 +66,7 @@ async def fire_pending_touchpoints():
         template = await get_template(client["id"], tp["touchpoint_key"])
         if not template or not template.get("active"):
             await complete_touchpoint(tp["id"])
+            logger.info(f"Skipping {tp['touchpoint_key']} for {tp['member_id']}: template missing or inactive")
             results.append({
                 "touchpoint_id": str(tp["id"]),
                 "touchpoint_key": tp["touchpoint_key"],
@@ -77,6 +78,7 @@ async def fire_pending_touchpoints():
 
         eligible, reason = await can_fire_touchpoint(tp)
         if not eligible:
+            logger.info(f"Deferring {tp['touchpoint_key']} for {tp['member_id']}: {reason}")
             results.append({
                 "touchpoint_id": str(tp["id"]),
                 "touchpoint_key": tp["touchpoint_key"],
@@ -98,6 +100,7 @@ async def fire_pending_touchpoints():
         template = await get_template(client["id"], tp["touchpoint_key"])
         if not template or not template.get("active"):
             await complete_touchpoint(tp["id"])
+            logger.info(f"Skipping {tp['touchpoint_key']} for {tp['member_id']}: template missing or inactive")
             results.append({
                 "touchpoint_id": str(tp["id"]),
                 "touchpoint_key": tp["touchpoint_key"],
@@ -109,6 +112,7 @@ async def fire_pending_touchpoints():
 
         eligible, reason = await can_fire_touchpoint(tp)
         if not eligible:
+            logger.info(f"Deferring {tp['touchpoint_key']} for {tp['member_id']}: {reason}")
             results.append({
                 "touchpoint_id": str(tp["id"]),
                 "touchpoint_key": tp["touchpoint_key"],

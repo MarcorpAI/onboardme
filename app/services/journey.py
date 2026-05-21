@@ -427,12 +427,18 @@ def _calculate_scheduled_for(approved_at: datetime, day: int, send_time: Optiona
 
 
 async def run_automation_loop():
-    """Small in-process scheduler for initiating due touchpoints."""
+    """Small in-process scheduler for touchpoint lifecycle work."""
     logger.info("Starting automation loop")
     while True:
         try:
-            from app.routes.jobs import fire_pending_touchpoints
+            from app.routes.jobs import (
+                fire_pending_touchpoints,
+                nudge_silent_conversations,
+                timeout_stale_touchpoints,
+            )
 
+            await timeout_stale_touchpoints()
+            await nudge_silent_conversations()
             await fire_pending_touchpoints()
         except Exception as e:
             logger.exception(f"Automation loop error: {e}")
