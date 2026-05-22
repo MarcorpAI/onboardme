@@ -39,6 +39,39 @@ const qrMessage = document.querySelector("#qr-message");
 const whatsappState = document.querySelector("#whatsapp-state");
 const whatsappDetail = document.querySelector("#whatsapp-detail");
 
+const COMMUNITY_MESSAGE_META = {
+  day_1_community_orientation: {
+    order: 1,
+    label: "Approval welcome",
+    editorDay: 1,
+  },
+  weekly_build_in_public: {
+    order: 2,
+    label: "Monday rhythm",
+    editorDay: 2,
+  },
+  checkin_midweek_progress: {
+    order: 3,
+    label: "Wednesday check-in",
+    editorDay: 3,
+  },
+  weekly_member_visibility: {
+    order: 4,
+    label: "Thursday visibility",
+    editorDay: 4,
+  },
+  weekly_little_wins: {
+    order: 5,
+    label: "Friday wins",
+    editorDay: 5,
+  },
+  checkin_weekend_reflection: {
+    order: 6,
+    label: "Saturday reflection",
+    editorDay: 6,
+  },
+};
+
 function setStatus(message) {
   statusEl.textContent = message;
 }
@@ -148,6 +181,40 @@ function eventById(id) {
   return state.events.find((event) => event.id === id);
 }
 
+function templateMeta(template) {
+  return COMMUNITY_MESSAGE_META[template.touchpoint_key] || null;
+}
+
+function templateSortValue(template) {
+  const meta = templateMeta(template);
+  if (meta) return meta.order;
+  return 1000 + (template.day || 1);
+}
+
+function sortTemplates() {
+  state.templates.sort((a, b) => {
+    const orderDiff = templateSortValue(a) - templateSortValue(b);
+    if (orderDiff !== 0) return orderDiff;
+    return (a.name || a.touchpoint_key).localeCompare(b.name || b.touchpoint_key);
+  });
+}
+
+function templateScheduleLabel(template) {
+  const meta = templateMeta(template);
+  if (meta) return meta.label;
+  return `Custom order ${template.day || 1}${template.send_time ? ` at ${template.send_time}` : ""}`;
+}
+
+function templateForForm(template) {
+  const meta = templateMeta(template);
+  if (!meta) return template;
+  return {
+    ...template,
+    day: meta.editorDay,
+    phase: template.phase || "community",
+  };
+}
+
 function toDatetimeLocal(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -173,7 +240,7 @@ function renderTemplates() {
     ].join(" ");
     button.innerHTML = `
       <strong>${template.name || template.touchpoint_key}</strong>
-      <span>Day ${template.day || 1}${template.send_time ? ` at ${template.send_time}` : ""} · ${template.automation ? "auto" : "manual"}</span>
+      <span>${templateScheduleLabel(template)} · ${template.automation ? "auto" : "manual"}</span>
     `;
     button.addEventListener("click", () => selectTemplate(template.touchpoint_key));
     templateList.appendChild(button);
@@ -186,7 +253,7 @@ function selectTemplate(key) {
   state.creating = false;
   state.selectedKey = key;
   templateKey.textContent = key;
-  setFormValues(templateForm, template);
+  setFormValues(templateForm, templateForForm(template));
   renderTemplates();
 }
 
@@ -312,6 +379,7 @@ async function load() {
     state.templates = templates;
     state.groups = groups;
     state.events = events;
+    sortTemplates();
     setFormValues(communityForm, settings);
     setFormValues(whatsappForm, settings);
     renderTemplates();
@@ -383,7 +451,7 @@ async function saveTemplate() {
         template.touchpoint_key === saved.touchpoint_key ? saved : template
       );
     }
-    state.templates.sort((a, b) => (a.day || 1) - (b.day || 1));
+    sortTemplates();
     selectTemplate(saved.touchpoint_key);
     setStatus("Message saved");
   } catch (error) {
