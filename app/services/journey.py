@@ -26,6 +26,13 @@ from app.services.database import (
     get_conversation_messages,
     close_conversation,
     update_touchpoint,
+    get_open_conversation,
+    get_groups_for_client,
+    get_upcoming_events_for_client,
+    get_events_due_for_reminders,
+    get_event,
+    get_active_members,
+    touchpoint_exists_between,
 )
 from app.services.groq import groq_service
 from app.services.whatsapp import whatsapp_service
@@ -44,6 +51,84 @@ logger = logging.getLogger(__name__)
 TouchpointDef = Dict[str, Any]
 
 TOUCHPOINT_SCHEDULE: List[TouchpointDef] = [
+    {
+        "day": 1,
+        "key": "day_1_community_orientation",
+        "name": "Community Orientation",
+        "automation": True,
+        "conditional": False,
+        "requires_human": False,
+        "phase": "community",
+        "purpose": "Welcome the approved member and progressively introduce the MBN ecosystem.",
+        "cta": "Start a conversation that helps the member understand MBN step by step, join the right groups, and share their own first goal or intro.",
+        "brief": "This is the first conversation after approval. Keep the reply specific to MBN, not general community advice. Do not explain every MBN group in one message. Start with a warm welcome and a high-level explanation of MBN as a builder-focused ecosystem. Ask one short question or give one small CTA. As the member replies, continue progressively through Active Builders, Members Visibility, Café, Opportunities, Marketplace, and All Access Learning Lab. Route them toward posting inside the relevant community groups, not only chatting privately with the AI. Do not offer to do, create, or handle an intro for the member. If an intro is relevant, ask them to share it themselves and optionally suggest the simple format: who they are, what they are building, and what they want support with.",
+        "fallback_message": "Welcome again. When you get a moment, I can walk you through how to get the best out of MBN step by step.",
+    },
+    {
+        "day": 1,
+        "key": "weekly_build_in_public",
+        "name": "Build in Public Monday",
+        "automation": True,
+        "conditional": False,
+        "requires_human": False,
+        "phase": "community",
+        "purpose": "Prompt the member to share weekly goals, progress, blockers, and plans in Active Builders.",
+        "cta": "Get the member to post their Build in Public update in Active Builders.",
+        "brief": "Monday MBN activity. Encourage the member to share what they are working on, their weekly goals, current progress, blockers, and plans in Active Builders. If they tell you privately, acknowledge it and still route them to share the useful version in the group.",
+        "fallback_message": "Quick Monday nudge: share your Build in Public update in Active Builders so the community can track and support your progress.",
+    },
+    {
+        "day": 1,
+        "key": "weekly_member_visibility",
+        "name": "Member Visibility Thursday",
+        "automation": True,
+        "conditional": False,
+        "requires_human": False,
+        "phase": "community",
+        "purpose": "Prompt the member to promote their business, product, service, or profile in Members Visibility.",
+        "cta": "Get the member to post a visibility update in Members Visibility.",
+        "brief": "Thursday MBN activity. Help the member become visible by sharing a business post, social profile, product/service offer, portfolio, promotion, or announcement in Members Visibility. Keep it practical and confidence-building.",
+        "fallback_message": "Today is Member Visibility Thursday. Share one offer, link, or business update in Members Visibility so more people know what you do.",
+    },
+    {
+        "day": 1,
+        "key": "weekly_little_wins",
+        "name": "Little Wins Friday",
+        "automation": True,
+        "conditional": False,
+        "requires_human": False,
+        "phase": "community",
+        "purpose": "Prompt the member to reflect on and share a weekly win in Active Builders.",
+        "cta": "Get the member to post one small or big win in Active Builders.",
+        "brief": "Friday MBN activity. Encourage reflection and celebration of progress: sales, completed tasks, skills learned, problems solved, goal progress, or new opportunities. If they say the win privately, encourage them to share it in Active Builders.",
+        "fallback_message": "Little Wins Friday is for progress, even small progress. Share one win from this week in Active Builders.",
+    },
+    {
+        "day": 1,
+        "key": "checkin_midweek_progress",
+        "name": "Midweek Progress Check-in",
+        "automation": True,
+        "conditional": False,
+        "requires_human": False,
+        "phase": "community",
+        "purpose": "Check how the member is progressing on what they said they were working on.",
+        "cta": "Get a progress update and route useful updates or blockers to the right MBN group.",
+        "brief": "Light accountability check-in. Ask how far they have gone with the thing they said they were working on. If there is a blocker, suggest sharing it in Active Builders or the most relevant group. Do not sound like a daily reminder bot.",
+        "fallback_message": "Midweek check-in: how far have you gone with what you planned to work on this week?",
+    },
+    {
+        "day": 1,
+        "key": "checkin_weekend_reflection",
+        "name": "Weekend Reflection Check-in",
+        "automation": True,
+        "conditional": False,
+        "requires_human": False,
+        "phase": "community",
+        "purpose": "Prompt a light reflection after the weekly activity cycle.",
+        "cta": "Help the member identify what moved forward and what should be shared in the community.",
+        "brief": "Light weekend-adjacent check-in. Ask what moved forward this week or what they need support with before the next week. Route wins to Active Builders, offers to Marketplace or Members Visibility, and opportunities/resources to the right groups.",
+        "fallback_message": "Quick reflection: what moved forward for you this week, and what do you need support with next?",
+    },
     # ── Foundation Phase (Days 1–14) ──
     {
         "day": 1,
@@ -298,6 +383,19 @@ TOUCHPOINT_SCHEDULE: List[TouchpointDef] = [
 # Index touchpoints by key for quick lookup
 TOUCHPOINT_MAP: Dict[str, TouchpointDef] = {tp["key"]: tp for tp in TOUCHPOINT_SCHEDULE}
 
+DAY1_ORIENTATION_KEY = "day_1_community_orientation"
+COMMUNITY_RECURRING_KEYS = {
+    "weekly_build_in_public",
+    "weekly_member_visibility",
+    "weekly_little_wins",
+    "checkin_midweek_progress",
+    "checkin_weekend_reflection",
+}
+COMMUNITY_TOUCHPOINT_KEYS = {DAY1_ORIENTATION_KEY, *COMMUNITY_RECURRING_KEYS}
+SEND_AND_COMPLETE_KEYS = COMMUNITY_RECURRING_KEYS
+EVENT_REMINDER_PREFIX = "event_reminder_"
+WAT = timezone(timedelta(hours=1))
+
 PROGRESS_GATE_EXEMPT_KEYS = {
     "day_1_orientation_checklist",
     "day_3_no_response",
@@ -315,7 +413,7 @@ UNRESOLVED_STATES = {"pending", "in_conversation", "needs_human"}
 
 def get_scheduled_touchpoints() -> List[TouchpointDef]:
     """Return all touchpoints that are eligible for automated scheduling."""
-    return [tp for tp in TOUCHPOINT_SCHEDULE if tp["automation"] or tp["requires_human"]]
+    return [tp for tp in TOUCHPOINT_SCHEDULE if (tp["automation"] or tp["requires_human"]) and tp["key"] in COMMUNITY_TOUCHPOINT_KEYS]
 
 
 def _parse_iso_datetime(value: Any) -> Optional[datetime]:
@@ -337,6 +435,12 @@ async def can_fire_touchpoint(touchpoint: Dict[str, Any]) -> tuple[bool, str]:
     touchpoint_key = touchpoint["touchpoint_key"]
     if touchpoint.get("requires_human"):
         return True, "human action"
+
+    if touchpoint_key.startswith(EVENT_REMINDER_PREFIX):
+        return True, "event reminder"
+
+    if touchpoint_key in COMMUNITY_RECURRING_KEYS:
+        return True, "community activity"
 
     if touchpoint_key in PROGRESS_GATE_EXEMPT_KEYS:
         return True, "exempt"
@@ -377,8 +481,12 @@ async def schedule_journey(member_id: uuid.UUID, approved_at: datetime, client_i
     Returns the number of touchpoints scheduled.
     """
     count = 0
-    templates = await get_templates_for_client(client_id)
-    schedule_items = templates or get_scheduled_touchpoints()
+    templates = [
+        template
+        for template in await get_templates_for_client(client_id)
+        if template.get("touchpoint_key") == DAY1_ORIENTATION_KEY
+    ]
+    schedule_items = templates or [TOUCHPOINT_MAP[DAY1_ORIENTATION_KEY]]
 
     for tp_def in schedule_items:
         # Day 1 = 0 days offset (fires immediately)
@@ -435,15 +543,137 @@ async def run_automation_loop():
                 fire_pending_touchpoints,
                 nudge_silent_conversations,
                 timeout_stale_touchpoints,
+                schedule_community_rhythm,
+                schedule_event_reminders,
             )
 
             await timeout_stale_touchpoints()
             await nudge_silent_conversations()
+            await schedule_community_rhythm()
+            await schedule_event_reminders()
             await fire_pending_touchpoints()
         except Exception as e:
             logger.exception(f"Automation loop error: {e}")
 
         await asyncio.sleep(300)
+
+
+def _wat_window_for(date_time: datetime) -> tuple[datetime, datetime]:
+    local = date_time.astimezone(WAT)
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+def _scheduled_today_utc(now: datetime, hour: int = 9, minute: int = 0) -> datetime:
+    local = now.astimezone(WAT)
+    scheduled = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return scheduled.astimezone(timezone.utc)
+
+
+def due_community_touchpoints(now: Optional[datetime] = None) -> List[tuple[str, datetime]]:
+    """Return recurring community touchpoints due today at/after 9 AM WAT."""
+    now = now or datetime.now(timezone.utc)
+    scheduled_for = _scheduled_today_utc(now)
+    if now < scheduled_for:
+        return []
+
+    weekday = now.astimezone(WAT).weekday()
+    mapping = {
+        0: ["weekly_build_in_public"],
+        2: ["checkin_midweek_progress"],
+        3: ["weekly_member_visibility"],
+        4: ["weekly_little_wins"],
+        5: ["checkin_weekend_reflection"],
+    }
+    return [(key, scheduled_for) for key in mapping.get(weekday, [])]
+
+
+async def schedule_due_community_touchpoints(client_id: uuid.UUID, now: Optional[datetime] = None) -> Dict[str, int]:
+    """Create missing recurring community touchpoints for all approved active members."""
+    now = now or datetime.now(timezone.utc)
+    due_items = due_community_touchpoints(now)
+    if not due_items:
+        return {"members": 0, "created": 0}
+
+    members = await get_active_members(client_id)
+    created = 0
+    for member in members:
+        for touchpoint_key, scheduled_for in due_items:
+            window_start, window_end = _wat_window_for(scheduled_for)
+            exists = await touchpoint_exists_between(member["id"], touchpoint_key, window_start, window_end)
+            if exists:
+                continue
+            await insert_touchpoint(
+                member_id=member["id"],
+                touchpoint_key=touchpoint_key,
+                scheduled_for=scheduled_for,
+                requires_human=False,
+            )
+            created += 1
+
+    return {"members": len(members), "created": created}
+
+
+def is_community_touchpoint_key(touchpoint_key: str) -> bool:
+    return touchpoint_key in COMMUNITY_TOUCHPOINT_KEYS or touchpoint_key.startswith(EVENT_REMINDER_PREFIX)
+
+
+def event_reminder_key(event_id: uuid.UUID | str) -> str:
+    return f"{EVENT_REMINDER_PREFIX}{event_id}"
+
+
+async def schedule_due_event_reminders(client_id: uuid.UUID, now: Optional[datetime] = None) -> Dict[str, int]:
+    """Create missing event reminder touchpoints for all approved active members."""
+    now = now or datetime.now(timezone.utc)
+    events = await get_events_due_for_reminders(client_id, now)
+    if not events:
+        return {"members": 0, "events": 0, "created": 0}
+
+    members = await get_active_members(client_id)
+    created = 0
+    for event in events:
+        starts_at = _parse_iso_datetime(event["starts_at"])
+        if not starts_at:
+            continue
+        touchpoint_key = event_reminder_key(event["id"])
+        scheduled_for = now
+        window_start = starts_at - timedelta(hours=max(event.get("reminder_hours_before") or 24, 1))
+        window_end = starts_at
+        for member in members:
+            exists = await touchpoint_exists_between(member["id"], touchpoint_key, window_start, window_end)
+            if exists:
+                continue
+            await insert_touchpoint(
+                member_id=member["id"],
+                touchpoint_key=touchpoint_key,
+                scheduled_for=scheduled_for,
+                requires_human=False,
+            )
+            created += 1
+
+    return {"members": len(members), "events": len(events), "created": created}
+
+
+def _build_event_template(event: Dict[str, Any]) -> Dict[str, Any]:
+    title = event.get("title") or "Upcoming MBN event"
+    starts_at = event.get("starts_at") or "the scheduled time"
+    description = event.get("description") or "An upcoming MBN community event."
+    location = event.get("location") or "the event location/details shared by MBN"
+    link = event.get("link")
+    link_note = f" Share this link only when making the CTA: {link}" if link else " If no link is available, do not invent one."
+    return {
+        "touchpoint_key": event_reminder_key(event["id"]),
+        "name": f"Event Reminder: {title}",
+        "purpose": f"Remind the member about the upcoming MBN event: {title}.",
+        "cta": "Get the member to note the event and attend or register if the link is available.",
+        "brief": (
+            f"This is an event reminder, not a weekly community rhythm message. Event: {title}. "
+            f"Date/time: {starts_at}. Description: {description}. Location: {location}."
+            f"{link_note} Keep it short and useful. Do not say the member is registered unless the conversation history proves it."
+        ),
+        "active": bool(event.get("active", True)),
+    }
 
 
 # ═══════════════════════════════════════════════════════════
@@ -489,18 +719,35 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
 
         # 4. Get template
         template = await get_template(client_data["id"], touchpoint_key)
+        if not template and touchpoint_key.startswith(EVENT_REMINDER_PREFIX):
+            event_id = touchpoint_key.removeprefix(EVENT_REMINDER_PREFIX)
+            try:
+                event = await get_event(uuid.UUID(event_id))
+            except ValueError:
+                event = None
+            if event and event["client_id"] == client_data["id"]:
+                template = _build_event_template(event)
+        if not template or not template.get("active", True):
+            logger.info(f"Skipping touchpoint {touchpoint_key}: template or event missing/inactive")
+            await complete_touchpoint(touchpoint_id)
+            return False
+        if template:
+            template["community_groups"] = await get_groups_for_client(client_data["id"])
+            template["community_events"] = await get_upcoming_events_for_client(client_data["id"])
 
-        # 5. Create conversation
-        conv = await create_conversation(member["id"], touchpoint_key)
+        # 5. Use the current open conversation when possible so community
+        # activities can be woven into an active chat instead of skipped.
+        conv = await get_open_conversation(member["id"])
+        if not conv:
+            conv = await create_conversation(member["id"], touchpoint_key)
         conversation_id = conv["id"]
+        history = await get_conversation_messages(conversation_id) if conv else []
 
         # 6. Call AI to generate opening message
-        # For the first message in a touchpoint, we pass empty history
-        # and let the AI generate based on the brief alone
         response_text = groq_service.generate_response(
             client_data=client_data,
             member=member,
-            messages=[],  # Empty history — this is the opening
+            messages=history,
             template=template,
         )
 
@@ -529,8 +776,13 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
             touchpoint_key=touchpoint_key,
         )
 
-        # 9. Update touchpoint state to 'in_conversation'
-        await set_touchpoint_fired(touchpoint_id, conversation_id)
+        # 9. Recurring community prompts are send-and-complete so they do not
+        # block the next activity. The open conversation still carries context.
+        if touchpoint_key in SEND_AND_COMPLETE_KEYS or touchpoint_key.startswith(EVENT_REMINDER_PREFIX):
+            await set_touchpoint_fired(touchpoint_id, conversation_id)
+            await complete_touchpoint(touchpoint_id)
+        else:
+            await set_touchpoint_fired(touchpoint_id, conversation_id)
 
         if touchpoint_key == "day_1_orientation_checklist":
             for prior in await get_touchpoints_by_member(member["id"]):
@@ -650,6 +902,21 @@ async def fire_nudge(touchpoint_id: uuid.UUID) -> bool:
             return False
 
         template = await get_template(client_data["id"], touchpoint_key)
+        if not template and touchpoint_key.startswith(EVENT_REMINDER_PREFIX):
+            event_id = touchpoint_key.removeprefix(EVENT_REMINDER_PREFIX)
+            try:
+                event = await get_event(uuid.UUID(event_id))
+            except ValueError:
+                event = None
+            if event and event["client_id"] == client_data["id"]:
+                template = _build_event_template(event)
+        if not template or not template.get("active", True):
+            logger.info(f"Skipping nudge for {touchpoint_key}: template or event missing/inactive")
+            await complete_touchpoint(touchpoint_id)
+            return False
+        if template:
+            template["community_groups"] = await get_groups_for_client(client_data["id"])
+            template["community_events"] = await get_upcoming_events_for_client(client_data["id"])
 
         # Generate nudge via AI
         nudge_text = groq_service.generate_nudge(

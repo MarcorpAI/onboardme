@@ -200,21 +200,21 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 2px #00000014;
 }
 
-.template-layout {
+.template-layout, .group-layout, .event-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
 
-.template-list {
+.template-list, .group-list, .event-list {
   display: grid;
   gap: 8px;
   max-height: calc(100vh - 160px);
   overflow: auto;
 }
 
-.template-card {
+.template-card, .group-card, .event-card {
   border: 1px solid var(--line);
   padding: 12px;
   background: var(--paper);
@@ -222,16 +222,16 @@ input:focus, textarea:focus, select:focus {
   text-align: left;
 }
 
-.template-card.active {
+.template-card.active, .group-card.active, .event-card.active {
   border-color: var(--black);
   box-shadow: inset 4px 0 0 var(--black);
 }
 
-.template-card.inactive { opacity: 0.5; }
-.template-card strong { display: block; margin-bottom: 4px; font-size: 14px; }
-.template-card span { color: var(--muted); font-size: 12px; }
+.template-card.inactive, .group-card.inactive, .event-card.inactive { opacity: 0.5; }
+.template-card strong, .group-card strong, .event-card strong { display: block; margin-bottom: 4px; font-size: 14px; }
+.template-card span, .group-card span, .event-card span { color: var(--muted); font-size: 12px; }
 
-.template-editor {
+.template-editor, .group-editor, .event-editor {
   display: grid;
   gap: 15px;
 }
@@ -338,7 +338,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 @media (max-width: 900px) {
-  .shell, .template-layout, .form-grid, .compact-grid, .metrics, .whatsapp-grid {
+  .shell, .template-layout, .group-layout, .event-layout, .form-grid, .compact-grid, .metrics, .whatsapp-grid {
     grid-template-columns: 1fr;
   }
 
@@ -354,5 +354,5 @@ input:focus, textarea:focus, select:focus {
   .panel { min-height: auto; padding: 16px; }
   .panel-head, .editor-topline { align-items: stretch; flex-direction: column; }
   .actions { flex-direction: column; }
-  .template-list { max-height: 340px; }
+  .template-list, .group-list, .event-list { max-height: 340px; }
 }

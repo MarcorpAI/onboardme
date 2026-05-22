@@ -36,6 +36,10 @@ from app.services.journey import (
     fire_nudge,
     TOUCHPOINT_MAP,
     can_fire_touchpoint,
+    schedule_due_community_touchpoints,
+    COMMUNITY_TOUCHPOINT_KEYS,
+    schedule_due_event_reminders,
+    is_community_touchpoint_key,
 )
 from app.services.whatsapp import whatsapp_service
 
@@ -63,8 +67,19 @@ async def fire_pending_touchpoints():
 
     results = []
     for tp in pending_human:
+        if not is_community_touchpoint_key(tp["touchpoint_key"]):
+            await complete_touchpoint(tp["id"])
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "skipped",
+                "reason": "legacy onboarding touchpoint disabled",
+            })
+            continue
+
         template = await get_template(client["id"], tp["touchpoint_key"])
-        if not template or not template.get("active"):
+        if not tp["touchpoint_key"].startswith("event_reminder_") and (not template or not template.get("active")):
             await complete_touchpoint(tp["id"])
             logger.info(f"Skipping {tp['touchpoint_key']} for {tp['member_id']}: template missing or inactive")
             results.append({
@@ -97,8 +112,19 @@ async def fire_pending_touchpoints():
         })
 
     for tp in pending:
+        if not is_community_touchpoint_key(tp["touchpoint_key"]):
+            await complete_touchpoint(tp["id"])
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "skipped",
+                "reason": "legacy onboarding touchpoint disabled",
+            })
+            continue
+
         template = await get_template(client["id"], tp["touchpoint_key"])
-        if not template or not template.get("active"):
+        if not tp["touchpoint_key"].startswith("event_reminder_") and (not template or not template.get("active")):
             await complete_touchpoint(tp["id"])
             logger.info(f"Skipping {tp['touchpoint_key']} for {tp['member_id']}: template missing or inactive")
             results.append({
@@ -147,6 +173,47 @@ async def fire_pending_touchpoints():
         "failed": failed,
         "results": results,
     }
+
+
+@router.post("/community-rhythm")
+async def schedule_community_rhythm():
+    """
+    Creates due recurring community activity/check-in touchpoints for approved members.
+    Runs every 5 minutes before fire-touchpoints.
+    """
+    client = await get_default_client()
+    if not client:
+        logger.error("No default client found — cannot schedule community rhythm")
+        return {"error": "No client configured"}
+
+    result = await schedule_due_community_touchpoints(client["id"])
+    logger.info(
+        "community-rhythm: created %s touchpoints for %s members",
+        result["created"],
+        result["members"],
+    )
+    return result
+
+
+@router.post("/event-reminders")
+async def schedule_event_reminders():
+    """
+    Creates due event reminder touchpoints for approved members.
+    Runs every 5 minutes before fire-touchpoints.
+    """
+    client = await get_default_client()
+    if not client:
+        logger.error("No default client found — cannot schedule event reminders")
+        return {"error": "No client configured"}
+
+    result = await schedule_due_event_reminders(client["id"])
+    logger.info(
+        "event-reminders: created %s reminders across %s events for %s members",
+        result["created"],
+        result["events"],
+        result["members"],
+    )
+    return result
 
 
 @router.post("/nudge-silent")

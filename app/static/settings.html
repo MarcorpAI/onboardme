@@ -28,6 +28,8 @@
         </div>
         <nav class="nav">
           <button class="nav-item active" data-panel="community">Community</button>
+          <button class="nav-item" data-panel="groups">Groups</button>
+          <button class="nav-item" data-panel="events">Events</button>
           <button class="nav-item" data-panel="templates">Messages</button>
           <button class="nav-item" data-panel="whatsapp">WhatsApp</button>
           <button class="nav-item" data-panel="timing">Timing</button>
@@ -58,6 +60,76 @@
             <label>Founder Stories link <input name="founder_stories_link" autocomplete="off" /></label>
             <label>Operator Session link <input name="operator_session_link" autocomplete="off" /></label>
           </form>
+        </section>
+
+        <section id="groups" class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Ecosystem</p>
+              <h2>Community Groups</h2>
+            </div>
+            <div class="actions">
+              <button id="new-group" class="secondary">New group</button>
+              <button id="save-group" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="group-layout">
+            <div id="group-list" class="group-list"></div>
+
+            <form id="group-form" class="group-editor">
+              <div class="editor-topline">
+                <div>
+                  <p id="group-id" class="template-key">Select a group</p>
+                  <input name="name" class="template-title-input" placeholder="Group name" />
+                </div>
+                <label class="switch"><input name="active" type="checkbox" /> Active</label>
+              </div>
+              <div class="compact-grid">
+                <label>Activity day <input name="activity_day" autocomplete="off" placeholder="Monday, Friday" /></label>
+                <label>Sort order <input name="sort_order" type="number" step="1" /></label>
+              </div>
+              <label>WhatsApp group link <input name="link" autocomplete="off" /></label>
+              <label>Description <textarea name="description" rows="4"></textarea></label>
+              <label>Purpose <textarea name="purpose" rows="3"></textarea></label>
+              <label>CTA guidance <textarea name="cta_guidance" rows="4"></textarea></label>
+            </form>
+          </div>
+        </section>
+
+        <section id="events" class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Calendar</p>
+              <h2>Community Events</h2>
+            </div>
+            <div class="actions">
+              <button id="new-event" class="secondary">New event</button>
+              <button id="save-event" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="event-layout">
+            <div id="event-list" class="event-list"></div>
+
+            <form id="event-form" class="event-editor">
+              <div class="editor-topline">
+                <div>
+                  <p id="event-id" class="template-key">Select an event</p>
+                  <input name="title" class="template-title-input" placeholder="Event title" />
+                </div>
+                <label class="switch"><input name="active" type="checkbox" /> Active</label>
+              </div>
+              <div class="compact-grid">
+                <label>Starts at <input name="starts_at" type="datetime-local" /></label>
+                <label>Ends at <input name="ends_at" type="datetime-local" /></label>
+                <label>Reminder hours before <input name="reminder_hours_before" type="number" min="0" step="1" /></label>
+                <label>Location <input name="location" autocomplete="off" /></label>
+              </div>
+              <label>Event link <input name="link" autocomplete="off" /></label>
+              <label>Description <textarea name="description" rows="5"></textarea></label>
+            </form>
+          </div>
         </section>
 
         <section id="templates" class="panel">

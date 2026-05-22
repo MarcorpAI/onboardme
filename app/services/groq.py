@@ -85,6 +85,44 @@ class GroqService:
                 )
             parts.append("\n".join(touchpoint_lines))
             parts.append("")
+
+            groups = template.get("community_groups") or []
+            if groups:
+                group_lines = ["MBN community groups available to route the member into:"]
+                for group in groups:
+                    if not group.get("active", True):
+                        continue
+                    line = f"- {group.get('name')}: {group.get('description')}"
+                    if group.get("purpose"):
+                        line += f" Purpose: {group['purpose']}"
+                    if group.get("activity_day"):
+                        line += f" Activity day: {group['activity_day']}"
+                    if group.get("cta_guidance"):
+                        line += f" CTA guidance: {group['cta_guidance']}"
+                    if group.get("link"):
+                        line += f" Link: {group['link']}"
+                    group_lines.append(line)
+                group_lines.append("When a group is relevant, encourage the member to share there. Do not invent links.")
+                parts.append("\n".join(group_lines))
+                parts.append("")
+
+            events = template.get("community_events") or []
+            if events:
+                event_lines = ["Upcoming MBN events available to mention when relevant:"]
+                for event in events:
+                    if not event.get("active", True):
+                        continue
+                    line = f"- {event.get('title')}: starts {event.get('starts_at')}"
+                    if event.get("description"):
+                        line += f". {event['description']}"
+                    if event.get("location"):
+                        line += f" Location: {event['location']}"
+                    if event.get("link"):
+                        line += f" Link: {event['link']}"
+                    event_lines.append(line)
+                event_lines.append("Mention events naturally when they match the touchpoint or member's interests. Do not invent event dates, titles, locations, or links.")
+                parts.append("\n".join(event_lines))
+                parts.append("")
         else:
             parts.append(
                 "This is a free-form conversation (not tied to a specific touchpoint). "
@@ -108,6 +146,31 @@ class GroqService:
             parts.append("\n".join(links))
             parts.append("")
 
+        # ─── Capability Boundaries ───
+        boundary_lines = [
+            "Capability boundaries (follow these strictly):",
+            "- You cannot post in any WhatsApp group for the member.",
+            "- You cannot create WhatsApp groups, add members, introduce members to each other, assign buddies, change profiles, book sessions, or notify admins unless the system explicitly provides that tool.",
+            "- You cannot do a member's intro for them. Do not say you can help them do an intro, make an intro, or handle an intro.",
+            "- You may suggest a simple intro format only when useful, then ask the member to post it themselves in the relevant group.",
+            "- Never claim an action has been completed unless the conversation history or system context proves it was completed.",
+            "- If the member asks for something outside your powers, say what you can do: guide them, suggest wording, point them to the right group or link, or ask a human admin to help when the workflow explicitly requires human action.",
+        ]
+        parts.append("\n".join(boundary_lines))
+        parts.append("")
+
+        # ─── MBN Operating Rules ───
+        operating_lines = [
+            "MBN operating rules:",
+            "- Keep every reply grounded in MBN, the member's profile, the current touchpoint, and the available group list.",
+            "- Do not give generic community-building advice unless the member directly asks for strategy advice.",
+            "- Private WhatsApp is for guidance and check-ins. Meaningful updates, asks, wins, offers, and opportunities should be routed back into the MBN groups.",
+            "- Introduce the ecosystem progressively. Mention one relevant group or next action at a time instead of listing everything.",
+            "- For a first intro, ask the member to share who they are, what they are building, and what support or goal they are focused on. They must send/post it themselves.",
+        ]
+        parts.append("\n".join(operating_lines))
+        parts.append("")
+
         # ─── Style Rules ───
         style_lines = [
             "Style rules (follow these strictly):",
@@ -117,6 +180,7 @@ class GroqService:
             "- One thing at a time. Never ask two questions in one message.",
             "- Never say 'as an AI' or anything that breaks the persona.",
             "- If the member asks something outside the community context, answer helpfully and briefly, then return naturally.",
+            "- Do not start with broad lines like 'building a community can be challenging' unless the member specifically asks about building a community.",
             "- When the CTA has been delivered and the member has acknowledged it — close the touchpoint warmly.",
             "- Do not keep the conversation going unnecessarily once the goal is achieved.",
             f"- Tone: {client_data.get('agent_tone', 'warm and conversational')}.",

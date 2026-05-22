@@ -32,6 +32,8 @@ from app.services.database import (
     update_member_state,
     update_member_lid,
     get_touchpoints_by_member,
+    get_groups_for_client,
+    get_upcoming_events_for_client,
 )
 from app.services.journey import (
     schedule_journey,
@@ -39,6 +41,7 @@ from app.services.journey import (
     can_fire_touchpoint,
     TOUCHPOINT_MAP,
     get_scheduled_touchpoints,
+    is_community_touchpoint_key,
 )
 from app.services.groq import groq_service
 from app.services.whatsapp import whatsapp_service
@@ -276,10 +279,14 @@ async def handle_inbound(data: dict):
             # Check if there's a pending touchpoint that should have been fired
             # This can happen if the member messages before the cron picks up
             touchpoints = await get_touchpoints_by_member(member_id)
+            now = datetime.now(timezone.utc)
             pending_tp = next(
                 (
                     tp for tp in touchpoints
-                    if tp["state"] == "pending" and not tp.get("requires_human")
+                    if tp["state"] == "pending"
+                    and not tp.get("requires_human")
+                    and is_community_touchpoint_key(tp["touchpoint_key"])
+                    and datetime.fromisoformat(tp["scheduled_for"].replace("Z", "+00:00")) <= now
                 ),
                 None
             )
@@ -314,6 +321,15 @@ async def handle_inbound(data: dict):
         # ─── Step 7: Load full conversation history ───
         messages = await get_conversation_messages(conversation_id)
         logger.debug(f"Loaded {len(messages)} messages for conversation {conversation_id}")
+        latest_agent_touchpoint_key = next(
+            (
+                msg.get("touchpoint_key")
+                for msg in reversed(messages)
+                if msg.get("role") == "agent" and msg.get("touchpoint_key")
+            ),
+            None,
+        )
+        ai_touchpoint_key = latest_agent_touchpoint_key or touchpoint_key
 
         # ─── Step 8: Get client and template context ───
         client = await get_default_client()
@@ -322,8 +338,20 @@ async def handle_inbound(data: dict):
             raise HTTPException(status_code=500, detail="No client configured")
 
         template = None
-        if touchpoint_key:
-            template = await get_template(client["id"], touchpoint_key)
+        if ai_touchpoint_key:
+            template = await get_template(client["id"], ai_touchpoint_key)
+            if template:
+                template["community_groups"] = await get_groups_for_client(client["id"])
+                template["community_events"] = await get_upcoming_events_for_client(client["id"])
+        if not template:
+            template = {
+                "touchpoint_key": "free_form_community_chat",
+                "purpose": "Continue a free-form MBN community conversation.",
+                "cta": "Answer the member's question briefly and route them to the right MBN group, event, or next action when relevant.",
+                "brief": "This is not a scheduled onboarding message. Stay specific to MBN and the member's latest message. If they ask about events, use only the upcoming event context provided. Do not invent event details.",
+                "community_groups": await get_groups_for_client(client["id"]),
+                "community_events": await get_upcoming_events_for_client(client["id"]),
+            }
 
         # ─── Step 9: Get fresh member profile ───
         member_profile = await get_member(member_id)
@@ -345,7 +373,7 @@ async def handle_inbound(data: dict):
             member_id=member_id,
             role="agent",
             content=response_text,
-            touchpoint_key=touchpoint_key,
+            touchpoint_key=ai_touchpoint_key,
         )
 
         # ─── Step 12: Send via WhatsApp ───
@@ -362,11 +390,11 @@ async def handle_inbound(data: dict):
             await update_member_lid(member_id, final_jid)
 
         # ─── Step 13: Check for CTA completion ───
-        if template and touchpoint_key:
+        if template and ai_touchpoint_key:
             cta_delivered = _detect_cta_completion(
                 agent_response=response_text,
                 template=template,
-                touchpoint_key=touchpoint_key,
+                touchpoint_key=ai_touchpoint_key,
                 messages=messages,
             )
             if cta_delivered:

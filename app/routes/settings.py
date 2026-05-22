@@ -8,6 +8,7 @@ Single-tenant: always operates on the default client record.
 import io
 import re
 from datetime import datetime, timezone
+from uuid import UUID
 
 import httpx
 import qrcode
@@ -22,8 +23,15 @@ from app.services.database import (
     update_default_client,
     get_templates_for_client,
     upsert_template,
+    get_groups_for_client,
+    get_group,
+    upsert_group,
+    get_events_for_client,
+    get_event,
+    upsert_event,
 )
 from app.config import settings as app_settings
+from app.services.journey import COMMUNITY_TOUCHPOINT_KEYS
 from app.services.whatsapp import whatsapp_service
 
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -112,6 +120,74 @@ class TemplateCreate(BaseModel):
     active: bool = True
 
 
+class GroupResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    purpose: Optional[str] = None
+    link: Optional[str] = None
+    activity_day: Optional[str] = None
+    cta_guidance: Optional[str] = None
+    sort_order: int = 0
+    active: bool = True
+
+
+class GroupCreate(BaseModel):
+    name: str
+    description: str
+    purpose: Optional[str] = None
+    link: Optional[str] = None
+    activity_day: Optional[str] = None
+    cta_guidance: Optional[str] = None
+    sort_order: int = 0
+    active: bool = True
+
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    purpose: Optional[str] = None
+    link: Optional[str] = None
+    activity_day: Optional[str] = None
+    cta_guidance: Optional[str] = None
+    sort_order: Optional[int] = None
+    active: Optional[bool] = None
+
+
+class EventResponse(BaseModel):
+    id: str
+    title: str
+    description: Optional[str] = None
+    starts_at: str
+    ends_at: Optional[str] = None
+    location: Optional[str] = None
+    link: Optional[str] = None
+    reminder_hours_before: int = 24
+    active: bool = True
+
+
+class EventCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    starts_at: datetime
+    ends_at: Optional[datetime] = None
+    location: Optional[str] = None
+    link: Optional[str] = None
+    reminder_hours_before: int = 24
+    active: bool = True
+
+
+class EventUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    location: Optional[str] = None
+    link: Optional[str] = None
+    reminder_hours_before: Optional[int] = None
+    active: Optional[bool] = None
+
+
 class LoginRequest(BaseModel):
     token: str
 
@@ -141,6 +217,42 @@ def _template_response(t: dict) -> TemplateResponse:
         fallback_message=t.get("fallback_message"),
         active=t["active"],
     )
+
+
+def _group_response(g: dict) -> GroupResponse:
+    return GroupResponse(
+        id=str(g["id"]),
+        name=g["name"],
+        description=g["description"],
+        purpose=g.get("purpose"),
+        link=g.get("link"),
+        activity_day=g.get("activity_day"),
+        cta_guidance=g.get("cta_guidance"),
+        sort_order=g.get("sort_order") or 0,
+        active=g.get("active", True),
+    )
+
+
+def _event_response(e: dict) -> EventResponse:
+    return EventResponse(
+        id=str(e["id"]),
+        title=e["title"],
+        description=e.get("description"),
+        starts_at=e["starts_at"],
+        ends_at=e.get("ends_at"),
+        location=e.get("location"),
+        link=e.get("link"),
+        reminder_hours_before=e.get("reminder_hours_before") or 24,
+        active=e.get("active", True),
+    )
+
+
+def _ensure_aware(value: Optional[datetime]) -> Optional[datetime]:
+    if not value:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 # ═══════════════════════════════════════════════════════════
@@ -216,6 +328,7 @@ async def list_templates():
         raise HTTPException(status_code=404, detail="No client configured")
 
     templates = await get_templates_for_client(client["id"], include_inactive=True)
+    templates = [t for t in templates if t["touchpoint_key"] in COMMUNITY_TOUCHPOINT_KEYS]
     return [_template_response(t) for t in templates]
 
 
@@ -285,6 +398,142 @@ async def update_template(touchpoint_key: str, updates: TemplateUpdate):
     )
 
     return _template_response(result)
+
+
+# ═══════════════════════════════════════════════════════════
+# Community Groups
+# ═══════════════════════════════════════════════════════════
+
+
+@router.get("/groups", response_model=list[GroupResponse], dependencies=[Depends(require_admin_token)])
+async def list_groups():
+    """Get all configured MBN community groups."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+
+    groups = await get_groups_for_client(client["id"], include_inactive=True)
+    return [_group_response(g) for g in groups]
+
+
+@router.post("/groups", response_model=GroupResponse, dependencies=[Depends(require_admin_token)])
+async def create_group(payload: GroupCreate):
+    """Create a community group used as AI routing context."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+
+    result = await upsert_group(
+        client_id=client["id"],
+        name=payload.name.strip(),
+        description=payload.description.strip(),
+        purpose=payload.purpose,
+        link=payload.link,
+        activity_day=payload.activity_day,
+        cta_guidance=payload.cta_guidance,
+        sort_order=payload.sort_order,
+        active=payload.active,
+    )
+    return _group_response(result)
+
+
+@router.put("/groups/{group_id}", response_model=GroupResponse, dependencies=[Depends(require_admin_token)])
+async def update_group(group_id: UUID, updates: GroupUpdate):
+    """Update a community group."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+
+    existing = await get_group(group_id)
+    if not existing or existing["client_id"] != client["id"]:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    result = await upsert_group(
+        client_id=client["id"],
+        group_id=group_id,
+        name=(updates.name if updates.name is not None else existing["name"]).strip(),
+        description=(updates.description if updates.description is not None else existing["description"]).strip(),
+        purpose=updates.purpose if updates.purpose is not None else existing.get("purpose"),
+        link=updates.link if updates.link is not None else existing.get("link"),
+        activity_day=updates.activity_day if updates.activity_day is not None else existing.get("activity_day"),
+        cta_guidance=updates.cta_guidance if updates.cta_guidance is not None else existing.get("cta_guidance"),
+        sort_order=updates.sort_order if updates.sort_order is not None else existing.get("sort_order", 0),
+        active=updates.active if updates.active is not None else existing.get("active", True),
+    )
+    return _group_response(result)
+
+
+# ═══════════════════════════════════════════════════════════
+# Community Events
+# ═══════════════════════════════════════════════════════════
+
+
+@router.get("/events", response_model=list[EventResponse], dependencies=[Depends(require_admin_token)])
+async def list_events():
+    """Get all configured community events."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+
+    events = await get_events_for_client(client["id"], include_inactive=True)
+    return [_event_response(e) for e in events]
+
+
+@router.post("/events", response_model=EventResponse, dependencies=[Depends(require_admin_token)])
+async def create_event(payload: EventCreate):
+    """Create a community event used as AI and reminder context."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+    if payload.reminder_hours_before < 0:
+        raise HTTPException(status_code=422, detail="reminder_hours_before must be 0 or greater")
+
+    result = await upsert_event(
+        client_id=client["id"],
+        title=payload.title.strip(),
+        description=payload.description,
+        starts_at=_ensure_aware(payload.starts_at),
+        ends_at=_ensure_aware(payload.ends_at),
+        location=payload.location,
+        link=payload.link,
+        reminder_hours_before=payload.reminder_hours_before,
+        active=payload.active,
+    )
+    return _event_response(result)
+
+
+@router.put("/events/{event_id}", response_model=EventResponse, dependencies=[Depends(require_admin_token)])
+async def update_event(event_id: UUID, updates: EventUpdate):
+    """Update a community event."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+
+    existing = await get_event(event_id)
+    if not existing or existing["client_id"] != client["id"]:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    reminder_hours_before = (
+        updates.reminder_hours_before
+        if updates.reminder_hours_before is not None
+        else existing.get("reminder_hours_before", 24)
+    )
+    if reminder_hours_before < 0:
+        raise HTTPException(status_code=422, detail="reminder_hours_before must be 0 or greater")
+
+    result = await upsert_event(
+        client_id=client["id"],
+        event_id=event_id,
+        title=(updates.title if updates.title is not None else existing["title"]).strip(),
+        description=updates.description if updates.description is not None else existing.get("description"),
+        starts_at=_ensure_aware(updates.starts_at) if updates.starts_at is not None else _ensure_aware(datetime.fromisoformat(existing["starts_at"])),
+        ends_at=_ensure_aware(updates.ends_at) if updates.ends_at is not None else (_ensure_aware(datetime.fromisoformat(existing["ends_at"])) if existing.get("ends_at") else None),
+        location=updates.location if updates.location is not None else existing.get("location"),
+        link=updates.link if updates.link is not None else existing.get("link"),
+        reminder_hours_before=reminder_hours_before,
+        active=updates.active if updates.active is not None else existing.get("active", True),
+    )
+    return _event_response(result)
 
 
 # ═══════════════════════════════════════════════════════════

@@ -4,6 +4,8 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.touchpoint import JourneyTouchpoint
 from app.models.template import Template
+from app.models.community_group import CommunityGroup
+from app.models.community_event import CommunityEvent
 
 __all__ = [
     "Client",
@@ -12,4 +14,6 @@ __all__ = [
     "Message",
     "JourneyTouchpoint",
     "Template",
+    "CommunityGroup",
+    "CommunityEvent",
 ]

@@ -19,6 +19,8 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.touchpoint import JourneyTouchpoint
 from app.models.template import Template
+from app.models.community_group import CommunityGroup
+from app.models.community_event import CommunityEvent
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +129,38 @@ def _template_to_dict(t: Template) -> Dict[str, Any]:
     }
 
 
+def _community_group_to_dict(g: CommunityGroup) -> Dict[str, Any]:
+    return {
+        "id": g.id,
+        "client_id": g.client_id,
+        "name": g.name,
+        "description": g.description,
+        "purpose": g.purpose,
+        "link": g.link,
+        "activity_day": g.activity_day,
+        "cta_guidance": g.cta_guidance,
+        "sort_order": g.sort_order,
+        "active": g.active,
+        "updated_at": g.updated_at.isoformat() if g.updated_at else None,
+    }
+
+
+def _community_event_to_dict(e: CommunityEvent) -> Dict[str, Any]:
+    return {
+        "id": e.id,
+        "client_id": e.client_id,
+        "title": e.title,
+        "description": e.description,
+        "starts_at": e.starts_at.isoformat() if e.starts_at else None,
+        "ends_at": e.ends_at.isoformat() if e.ends_at else None,
+        "location": e.location,
+        "link": e.link,
+        "reminder_hours_before": e.reminder_hours_before,
+        "active": e.active,
+        "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+    }
+
+
 # ═══════════════════════════════════════════════════════════
 # Initialisation
 # ═══════════════════════════════════════════════════════════
@@ -143,6 +177,39 @@ async def init_db():
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS conditional BOOLEAN DEFAULT FALSE"))
         await conn.execute(text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS requires_human BOOLEAN DEFAULT FALSE"))
         await conn.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS human_escalation_whatsapp TEXT"))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_groups (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                purpose TEXT,
+                link TEXT,
+                activity_day TEXT,
+                cta_guidance TEXT,
+                sort_order INTEGER DEFAULT 0,
+                active BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_community_groups_client_id ON community_groups(client_id)"))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_events (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                description TEXT,
+                starts_at TIMESTAMPTZ NOT NULL,
+                ends_at TIMESTAMPTZ,
+                location TEXT,
+                link TEXT,
+                reminder_hours_before INTEGER DEFAULT 24,
+                active BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_community_events_client_id ON community_events(client_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_community_events_starts_at ON community_events(starts_at)"))
     logger.info("Database tables initialised")
 
 
@@ -395,6 +462,213 @@ async def sync_template_metadata(client_id: uuid.UUID, touchpoint_key: str, **me
 
 
 # ═══════════════════════════════════════════════════════════
+# Community Groups
+# ═══════════════════════════════════════════════════════════
+
+async def get_groups_for_client(client_id: uuid.UUID, include_inactive: bool = False) -> List[Dict[str, Any]]:
+    """Get configured community groups for a client."""
+    async with async_session_maker() as db:
+        filters = [CommunityGroup.client_id == client_id]
+        if not include_inactive:
+            filters.append(CommunityGroup.active == True)
+        stmt = select(CommunityGroup).where(and_(*filters)).order_by(
+            CommunityGroup.sort_order.asc(), CommunityGroup.name.asc()
+        )
+        result = await db.execute(stmt)
+        groups = result.scalars().all()
+        return [_community_group_to_dict(g) for g in groups]
+
+
+async def get_group(group_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    """Get one community group by ID."""
+    async with async_session_maker() as db:
+        result = await db.get(CommunityGroup, group_id)
+        return _community_group_to_dict(result) if result else None
+
+
+async def upsert_group(
+    client_id: uuid.UUID,
+    name: str,
+    description: str,
+    group_id: Optional[uuid.UUID] = None,
+    purpose: Optional[str] = None,
+    link: Optional[str] = None,
+    activity_day: Optional[str] = None,
+    cta_guidance: Optional[str] = None,
+    sort_order: int = 0,
+    active: bool = True,
+) -> Dict[str, Any]:
+    """Create or update a community group."""
+    async with async_session_maker() as db:
+        group = None
+        if group_id:
+            group = await db.get(CommunityGroup, group_id)
+
+        if not group:
+            stmt = select(CommunityGroup).where(
+                and_(CommunityGroup.client_id == client_id, CommunityGroup.name == name)
+            ).limit(1)
+            result = await db.execute(stmt)
+            group = result.scalar_one_or_none()
+
+        now = datetime.now(timezone.utc)
+        if group:
+            group.name = name
+            group.description = description
+            group.purpose = purpose
+            group.link = link
+            group.activity_day = activity_day
+            group.cta_guidance = cta_guidance
+            group.sort_order = sort_order
+            group.active = active
+            group.updated_at = now
+        else:
+            group = CommunityGroup(
+                client_id=client_id,
+                name=name,
+                description=description,
+                purpose=purpose,
+                link=link,
+                activity_day=activity_day,
+                cta_guidance=cta_guidance,
+                sort_order=sort_order,
+                active=active,
+                updated_at=now,
+            )
+            db.add(group)
+
+        await db.commit()
+        await db.refresh(group)
+        return _community_group_to_dict(group)
+
+
+# ═══════════════════════════════════════════════════════════
+# Community Events
+# ═══════════════════════════════════════════════════════════
+
+async def get_events_for_client(
+    client_id: uuid.UUID,
+    include_inactive: bool = False,
+    upcoming_only: bool = False,
+    now: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Get configured community events for a client."""
+    async with async_session_maker() as db:
+        filters = [CommunityEvent.client_id == client_id]
+        if not include_inactive:
+            filters.append(CommunityEvent.active == True)
+        if upcoming_only:
+            filters.append(CommunityEvent.starts_at >= (now or datetime.now(timezone.utc)))
+        stmt = select(CommunityEvent).where(and_(*filters)).order_by(CommunityEvent.starts_at.asc())
+        result = await db.execute(stmt)
+        events = result.scalars().all()
+        return [_community_event_to_dict(e) for e in events]
+
+
+async def get_event(event_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    """Get one community event by ID."""
+    async with async_session_maker() as db:
+        result = await db.get(CommunityEvent, event_id)
+        return _community_event_to_dict(result) if result else None
+
+
+async def get_upcoming_events_for_client(
+    client_id: uuid.UUID,
+    limit: int = 5,
+    now: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Get active upcoming events to provide as AI context."""
+    async with async_session_maker() as db:
+        stmt = (
+            select(CommunityEvent)
+            .where(
+                and_(
+                    CommunityEvent.client_id == client_id,
+                    CommunityEvent.active == True,
+                    CommunityEvent.starts_at >= (now or datetime.now(timezone.utc)),
+                )
+            )
+            .order_by(CommunityEvent.starts_at.asc())
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        events = result.scalars().all()
+        return [_community_event_to_dict(e) for e in events]
+
+
+async def get_events_due_for_reminders(
+    client_id: uuid.UUID,
+    now: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Get active upcoming events whose reminder window has opened."""
+    now = now or datetime.now(timezone.utc)
+    async with async_session_maker() as db:
+        reminder_at = CommunityEvent.starts_at - func.make_interval(0, 0, 0, 0, CommunityEvent.reminder_hours_before)
+        stmt = (
+            select(CommunityEvent)
+            .where(
+                and_(
+                    CommunityEvent.client_id == client_id,
+                    CommunityEvent.active == True,
+                    CommunityEvent.starts_at > now,
+                    reminder_at <= now,
+                )
+            )
+            .order_by(CommunityEvent.starts_at.asc())
+        )
+        result = await db.execute(stmt)
+        events = result.scalars().all()
+        return [_community_event_to_dict(e) for e in events]
+
+
+async def upsert_event(
+    client_id: uuid.UUID,
+    title: str,
+    starts_at: datetime,
+    event_id: Optional[uuid.UUID] = None,
+    description: Optional[str] = None,
+    ends_at: Optional[datetime] = None,
+    location: Optional[str] = None,
+    link: Optional[str] = None,
+    reminder_hours_before: int = 24,
+    active: bool = True,
+) -> Dict[str, Any]:
+    """Create or update a community event."""
+    async with async_session_maker() as db:
+        event = await db.get(CommunityEvent, event_id) if event_id else None
+
+        now = datetime.now(timezone.utc)
+        if event:
+            event.title = title
+            event.description = description
+            event.starts_at = starts_at
+            event.ends_at = ends_at
+            event.location = location
+            event.link = link
+            event.reminder_hours_before = reminder_hours_before
+            event.active = active
+            event.updated_at = now
+        else:
+            event = CommunityEvent(
+                client_id=client_id,
+                title=title,
+                description=description,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                location=location,
+                link=link,
+                reminder_hours_before=reminder_hours_before,
+                active=active,
+                updated_at=now,
+            )
+            db.add(event)
+
+        await db.commit()
+        await db.refresh(event)
+        return _community_event_to_dict(event)
+
+
+# ═══════════════════════════════════════════════════════════
 # Members
 # ═══════════════════════════════════════════════════════════
 
@@ -531,6 +805,21 @@ async def member_exists(whatsapp: str, client_id: uuid.UUID) -> bool:
         ).limit(1)
         result = await db.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+
+async def get_active_members(client_id: uuid.UUID) -> List[Dict[str, Any]]:
+    """Get approved members eligible for proactive community activity."""
+    async with async_session_maker() as db:
+        stmt = select(Member).where(
+            and_(
+                Member.client_id == client_id,
+                Member.state.in_(["pending", "active"]),
+                Member.approved_at != None,
+            )
+        ).order_by(Member.created_at.asc())
+        result = await db.execute(stmt)
+        members = result.scalars().all()
+        return [_member_to_dict(m) for m in members]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -685,6 +974,26 @@ async def insert_touchpoint(
         await db.refresh(tp)
 
     return _touchpoint_to_dict(tp)
+
+
+async def touchpoint_exists_between(
+    member_id: uuid.UUID,
+    touchpoint_key: str,
+    starts_at: datetime,
+    ends_at: datetime,
+) -> bool:
+    """Check whether a member already has this touchpoint in a time window."""
+    async with async_session_maker() as db:
+        stmt = select(JourneyTouchpoint.id).where(
+            and_(
+                JourneyTouchpoint.member_id == member_id,
+                JourneyTouchpoint.touchpoint_key == touchpoint_key,
+                JourneyTouchpoint.scheduled_for >= starts_at,
+                JourneyTouchpoint.scheduled_for < ends_at,
+            )
+        ).limit(1)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
 
 async def get_pending_touchpoints() -> List[Dict[str, Any]]:

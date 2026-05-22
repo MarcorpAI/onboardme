@@ -83,6 +83,26 @@ class ClaudeService:
             ]
             parts.append("\n".join(touchpoint_lines))
             parts.append("")
+
+            groups = template.get("community_groups") or []
+            if groups:
+                group_lines = ["MBN community groups available to route the member into:"]
+                for group in groups:
+                    if not group.get("active", True):
+                        continue
+                    line = f"- {group.get('name')}: {group.get('description')}"
+                    if group.get("purpose"):
+                        line += f" Purpose: {group['purpose']}"
+                    if group.get("activity_day"):
+                        line += f" Activity day: {group['activity_day']}"
+                    if group.get("cta_guidance"):
+                        line += f" CTA guidance: {group['cta_guidance']}"
+                    if group.get("link"):
+                        line += f" Link: {group['link']}"
+                    group_lines.append(line)
+                group_lines.append("When a group is relevant, encourage the member to share there. Do not invent links.")
+                parts.append("\n".join(group_lines))
+                parts.append("")
         else:
             parts.append(
                 "This is a free-form conversation (not tied to a specific touchpoint). "

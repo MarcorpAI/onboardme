@@ -86,6 +86,34 @@ CREATE TABLE IF NOT EXISTS templates (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS community_groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    purpose TEXT,
+    link TEXT,
+    activity_day TEXT,
+    cta_guidance TEXT,
+    sort_order INT DEFAULT 0,
+    active BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS community_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    starts_at TIMESTAMPTZ NOT NULL,
+    ends_at TIMESTAMPTZ,
+    location TEXT,
+    link TEXT,
+    reminder_hours_before INT DEFAULT 24,
+    active BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_members_whatsapp ON members(whatsapp);
 CREATE INDEX IF NOT EXISTS idx_members_whatsapp_lid ON members(whatsapp_lid);
@@ -104,3 +132,6 @@ CREATE INDEX IF NOT EXISTS idx_touchpoints_scheduled_for ON journey_touchpoints(
 
 CREATE INDEX IF NOT EXISTS idx_templates_client_id ON templates(client_id);
 CREATE INDEX IF NOT EXISTS idx_templates_touchpoint_key ON templates(touchpoint_key);
+CREATE INDEX IF NOT EXISTS idx_community_groups_client_id ON community_groups(client_id);
+CREATE INDEX IF NOT EXISTS idx_community_events_client_id ON community_events(client_id);
+CREATE INDEX IF NOT EXISTS idx_community_events_starts_at ON community_events(starts_at);

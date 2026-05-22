@@ -3,8 +3,14 @@ const TOKEN_KEY = "onboardme_admin_token";
 const state = {
   settings: null,
   templates: [],
+  groups: [],
+  events: [],
   selectedKey: null,
+  selectedGroupId: null,
+  selectedEventId: null,
   creating: false,
+  creatingGroup: false,
+  creatingEvent: false,
   token: sessionStorage.getItem(TOKEN_KEY) || "",
   activePanel: "community",
   qrObjectUrl: null,
@@ -21,6 +27,12 @@ const whatsappForm = document.querySelector("#whatsapp-form");
 const templateForm = document.querySelector("#template-form");
 const templateList = document.querySelector("#template-list");
 const templateKey = document.querySelector("#template-key");
+const groupForm = document.querySelector("#group-form");
+const groupList = document.querySelector("#group-list");
+const groupId = document.querySelector("#group-id");
+const eventForm = document.querySelector("#event-form");
+const eventList = document.querySelector("#event-list");
+const eventId = document.querySelector("#event-id");
 const timingGrid = document.querySelector("#timing-grid");
 const qrImage = document.querySelector("#qr-image");
 const qrMessage = document.querySelector("#qr-message");
@@ -98,8 +110,55 @@ function emptyTemplate() {
   };
 }
 
+function emptyGroup() {
+  return {
+    name: "",
+    description: "",
+    purpose: "",
+    link: "",
+    activity_day: "",
+    cta_guidance: "",
+    sort_order: state.groups.length + 1,
+    active: true,
+  };
+}
+
+function emptyEvent() {
+  return {
+    title: "",
+    description: "",
+    starts_at: "",
+    ends_at: "",
+    location: "",
+    link: "",
+    reminder_hours_before: 24,
+    active: true,
+  };
+}
+
 function templateByKey(key) {
   return state.templates.find((template) => template.touchpoint_key === key);
+}
+
+function groupById(id) {
+  return state.groups.find((group) => group.id === id);
+}
+
+function eventById(id) {
+  return state.events.find((event) => event.id === id);
+}
+
+function toDatetimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocal(value) {
+  if (!value) return null;
+  return new Date(value).toISOString();
 }
 
 function renderTemplates() {
@@ -139,6 +198,85 @@ function startNewTemplate() {
   renderTemplates();
 }
 
+function renderGroups() {
+  groupList.innerHTML = "";
+  for (const group of state.groups) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = [
+      "group-card",
+      group.id === state.selectedGroupId ? "active" : "",
+      group.active ? "" : "inactive",
+    ].join(" ");
+    button.innerHTML = `
+      <strong>${group.name}</strong>
+      <span>${group.activity_day || "Always available"}${group.link ? " · linked" : ""}</span>
+    `;
+    button.addEventListener("click", () => selectGroup(group.id));
+    groupList.appendChild(button);
+  }
+}
+
+function selectGroup(id) {
+  const group = groupById(id);
+  if (!group) return;
+  state.creatingGroup = false;
+  state.selectedGroupId = id;
+  groupId.textContent = id;
+  setFormValues(groupForm, group);
+  renderGroups();
+}
+
+function startNewGroup() {
+  state.creatingGroup = true;
+  state.selectedGroupId = null;
+  groupId.textContent = "new_group";
+  setFormValues(groupForm, emptyGroup());
+  renderGroups();
+}
+
+function renderEvents() {
+  eventList.innerHTML = "";
+  for (const event of state.events) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = [
+      "event-card",
+      event.id === state.selectedEventId ? "active" : "",
+      event.active ? "" : "inactive",
+    ].join(" ");
+    const when = event.starts_at ? new Date(event.starts_at).toLocaleString() : "No date";
+    button.innerHTML = `
+      <strong>${event.title}</strong>
+      <span>${when}${event.link ? " · linked" : ""}</span>
+    `;
+    button.addEventListener("click", () => selectEvent(event.id));
+    eventList.appendChild(button);
+  }
+}
+
+function selectEvent(id) {
+  const event = eventById(id);
+  if (!event) return;
+  state.creatingEvent = false;
+  state.selectedEventId = id;
+  eventId.textContent = id;
+  setFormValues(eventForm, {
+    ...event,
+    starts_at: toDatetimeLocal(event.starts_at),
+    ends_at: toDatetimeLocal(event.ends_at),
+  });
+  renderEvents();
+}
+
+function startNewEvent() {
+  state.creatingEvent = true;
+  state.selectedEventId = null;
+  eventId.textContent = "new_event";
+  setFormValues(eventForm, emptyEvent());
+  renderEvents();
+}
+
 function renderTiming(timing) {
   const labels = {
     follow_up_delay_mins: "Follow-up delay",
@@ -162,19 +300,27 @@ async function load() {
   try {
     showApp();
     setStatus("Loading settings...");
-    const [settings, templates, timing] = await Promise.all([
+    const [settings, templates, groups, events, timing] = await Promise.all([
       api("/api/settings"),
       api("/api/templates"),
+      api("/api/groups"),
+      api("/api/events"),
       api("/api/settings/timing"),
     ]);
 
     state.settings = settings;
     state.templates = templates;
+    state.groups = groups;
+    state.events = events;
     setFormValues(communityForm, settings);
     setFormValues(whatsappForm, settings);
     renderTemplates();
+    renderGroups();
+    renderEvents();
     renderTiming(timing);
     if (templates.length) selectTemplate(templates[0].touchpoint_key);
+    if (groups.length) selectGroup(groups[0].id);
+    if (events.length) selectEvent(events[0].id);
     await refreshWhatsApp();
     setStatus("Ready");
   } catch (error) {
@@ -240,6 +386,62 @@ async function saveTemplate() {
     state.templates.sort((a, b) => (a.day || 1) - (b.day || 1));
     selectTemplate(saved.touchpoint_key);
     setStatus("Message saved");
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
+async function saveGroup() {
+  try {
+    setStatus("Saving group...");
+    const raw = formValues(groupForm);
+    const payload = {
+      ...raw,
+      sort_order: raw.sort_order ? Number(raw.sort_order) : 0,
+      active: groupForm.elements.active.checked,
+    };
+
+    const path = state.creatingGroup ? "/api/groups" : `/api/groups/${state.selectedGroupId}`;
+    const method = state.creatingGroup ? "POST" : "PUT";
+    const saved = await api(path, { method, body: JSON.stringify(payload) });
+
+    if (state.creatingGroup) {
+      state.groups.push(saved);
+    } else {
+      state.groups = state.groups.map((group) => group.id === saved.id ? saved : group);
+    }
+    state.groups.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    selectGroup(saved.id);
+    setStatus("Group saved");
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
+async function saveEvent() {
+  try {
+    setStatus("Saving event...");
+    const raw = formValues(eventForm);
+    const payload = {
+      ...raw,
+      starts_at: fromDatetimeLocal(raw.starts_at),
+      ends_at: fromDatetimeLocal(raw.ends_at),
+      reminder_hours_before: raw.reminder_hours_before ? Number(raw.reminder_hours_before) : 24,
+      active: eventForm.elements.active.checked,
+    };
+
+    const path = state.creatingEvent ? "/api/events" : `/api/events/${state.selectedEventId}`;
+    const method = state.creatingEvent ? "POST" : "PUT";
+    const saved = await api(path, { method, body: JSON.stringify(payload) });
+
+    if (state.creatingEvent) {
+      state.events.push(saved);
+    } else {
+      state.events = state.events.map((event) => event.id === saved.id ? saved : event);
+    }
+    state.events.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+    selectEvent(saved.id);
+    setStatus("Event saved");
   } catch (error) {
     if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
   }
@@ -352,6 +554,10 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 document.querySelector("#save-community").addEventListener("click", saveCommunity);
 document.querySelector("#save-template").addEventListener("click", saveTemplate);
 document.querySelector("#new-template").addEventListener("click", startNewTemplate);
+document.querySelector("#save-group").addEventListener("click", saveGroup);
+document.querySelector("#new-group").addEventListener("click", startNewGroup);
+document.querySelector("#save-event").addEventListener("click", saveEvent);
+document.querySelector("#new-event").addEventListener("click", startNewEvent);
 document.querySelector("#refresh-whatsapp").addEventListener("click", refreshWhatsApp);
 document.querySelector("#disconnect-whatsapp").addEventListener("click", disconnectWhatsApp);
 document.querySelector("#save-whatsapp").addEventListener("click", saveWhatsAppSettings);

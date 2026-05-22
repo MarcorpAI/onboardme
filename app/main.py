@@ -22,8 +22,9 @@ from pathlib import Path
 
 from app.routes import webhooks, jobs, settings
 from app.config import settings as app_settings
-from app.services.database import init_db, upsert_default_client, get_templates_for_client, upsert_template
-from app.services.journey import TOUCHPOINT_SCHEDULE, run_automation_loop
+from app.data.mbn_groups import MBN_GROUPS
+from app.services.database import init_db, upsert_default_client, get_templates_for_client, upsert_template, get_groups_for_client, upsert_group
+from app.services.journey import TOUCHPOINT_SCHEDULE, run_automation_loop, COMMUNITY_TOUCHPOINT_KEYS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,7 +75,7 @@ async def startup_event():
     seeded = 0
     for tp_def in TOUCHPOINT_SCHEDULE:
         key = tp_def["key"]
-        if key not in existing_keys:
+        if key in COMMUNITY_TOUCHPOINT_KEYS and key not in existing_keys:
             await upsert_template(
                 client_id=client_id,
                 touchpoint_key=key,
@@ -97,6 +98,13 @@ async def startup_event():
         logger.info(f"Seeded {seeded} new templates")
     else:
         logger.info("All templates already exist, nothing to seed")
+
+    # 4. Seed default MBN groups if the admin has not configured groups yet.
+    existing_groups = await get_groups_for_client(client_id, include_inactive=True)
+    if not existing_groups:
+        for group in MBN_GROUPS:
+            await upsert_group(client_id=client_id, active=True, **group)
+        logger.info(f"Seeded {len(MBN_GROUPS)} default MBN groups")
 
     logger.info("OnboardMe V2 startup complete")
 
