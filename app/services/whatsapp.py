@@ -47,6 +47,17 @@ class WhatsAppService:
             logger.error(f"Error disconnecting WhatsApp bridge: {e}")
             raise
 
+    async def is_connected(self) -> bool:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{self.bridge_url}/health", timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+                return bool(data.get("connected"))
+        except Exception as e:
+            logger.error(f"Error checking WhatsApp bridge status: {e}")
+            return False
+
     def format_phone(self, phone: str) -> str:
         # Strip everything that isn't a digit
         phone = phone.strip().replace(" ", "").replace("-", "").replace("+", "")

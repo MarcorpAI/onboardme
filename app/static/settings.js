@@ -5,12 +5,16 @@ const state = {
   templates: [],
   groups: [],
   events: [],
+  broadcasts: [],
+  broadcastDetail: null,
   selectedKey: null,
   selectedGroupId: null,
   selectedEventId: null,
+  selectedBroadcastId: null,
   creating: false,
   creatingGroup: false,
   creatingEvent: false,
+  creatingBroadcast: true,
   token: sessionStorage.getItem(TOKEN_KEY) || "",
   activePanel: "community",
   qrObjectUrl: null,
@@ -33,6 +37,12 @@ const groupId = document.querySelector("#group-id");
 const eventForm = document.querySelector("#event-form");
 const eventList = document.querySelector("#event-list");
 const eventId = document.querySelector("#event-id");
+const broadcastForm = document.querySelector("#broadcast-form");
+const broadcastList = document.querySelector("#broadcast-list");
+const broadcastRecipients = document.querySelector("#broadcast-recipients");
+const broadcastId = document.querySelector("#broadcast-id");
+const broadcastStatus = document.querySelector("#broadcast-status");
+const broadcastSummary = document.querySelector("#broadcast-summary");
 const timingGrid = document.querySelector("#timing-grid");
 const qrImage = document.querySelector("#qr-image");
 const qrMessage = document.querySelector("#qr-message");
@@ -169,6 +179,17 @@ function emptyEvent() {
   };
 }
 
+function emptyBroadcast() {
+  return {
+    title: "",
+    brief: "",
+    link: "",
+    message: "",
+    manual_numbers: "",
+    include_approved_members: false,
+  };
+}
+
 function templateByKey(key) {
   return state.templates.find((template) => template.touchpoint_key === key);
 }
@@ -179,6 +200,10 @@ function groupById(id) {
 
 function eventById(id) {
   return state.events.find((event) => event.id === id);
+}
+
+function broadcastById(id) {
+  return state.broadcasts.find((broadcast) => broadcast.id === id);
 }
 
 function templateMeta(template) {
@@ -344,6 +369,83 @@ function startNewEvent() {
   renderEvents();
 }
 
+function renderBroadcasts() {
+  broadcastList.innerHTML = "";
+  for (const broadcast of state.broadcasts) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = [
+      "broadcast-card",
+      broadcast.id === state.selectedBroadcastId ? "active" : "",
+    ].join(" ");
+    button.innerHTML = `
+      <strong>${broadcast.title}</strong>
+      <span>${broadcast.status} · ${broadcast.total_recipients} recipients</span>
+    `;
+    button.addEventListener("click", () => selectBroadcast(broadcast.id));
+    broadcastList.appendChild(button);
+  }
+}
+
+function renderBroadcastRecipients() {
+  const recipients = state.broadcastDetail?.recipients || [];
+  if (!recipients.length) {
+    broadcastRecipients.innerHTML = "";
+    return;
+  }
+
+  const counts = recipients.reduce((acc, recipient) => {
+    acc[recipient.status] = (acc[recipient.status] || 0) + 1;
+    return acc;
+  }, {});
+  const rows = recipients.slice(0, 80).map((recipient) => `
+    <div class="recipient-row">
+      <span>${recipient.whatsapp}</span>
+      <strong>${recipient.status}</strong>
+    </div>
+  `).join("");
+  broadcastRecipients.innerHTML = `
+    <div class="recipient-head">
+      <strong>Recipients</strong>
+      <span>sent ${counts.sent || 0} · pending ${counts.pending || 0} · failed ${counts.failed || 0}</span>
+    </div>
+    ${rows}
+  `;
+}
+
+async function selectBroadcast(id) {
+  const broadcast = broadcastById(id);
+  if (!broadcast) return;
+  state.creatingBroadcast = false;
+  state.selectedBroadcastId = id;
+  broadcastId.textContent = id;
+  broadcastStatus.textContent = broadcast.status;
+  setFormValues(broadcastForm, {
+    ...broadcast,
+    link: "",
+    manual_numbers: "",
+  });
+  renderBroadcasts();
+  try {
+    state.broadcastDetail = await api(`/api/broadcasts/${id}`);
+    renderBroadcastRecipients();
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
+function startNewBroadcast() {
+  state.creatingBroadcast = true;
+  state.selectedBroadcastId = null;
+  state.broadcastDetail = null;
+  broadcastId.textContent = "new_broadcast";
+  broadcastStatus.textContent = "Draft";
+  broadcastSummary.textContent = "";
+  broadcastRecipients.innerHTML = "";
+  setFormValues(broadcastForm, emptyBroadcast());
+  renderBroadcasts();
+}
+
 function renderTiming(timing) {
   const labels = {
     follow_up_delay_mins: "Follow-up delay",
@@ -367,11 +469,12 @@ async function load() {
   try {
     showApp();
     setStatus("Loading settings...");
-    const [settings, templates, groups, events, timing] = await Promise.all([
+    const [settings, templates, groups, events, broadcasts, timing] = await Promise.all([
       api("/api/settings"),
       api("/api/templates"),
       api("/api/groups"),
       api("/api/events"),
+      api("/api/broadcasts"),
       api("/api/settings/timing"),
     ]);
 
@@ -379,16 +482,20 @@ async function load() {
     state.templates = templates;
     state.groups = groups;
     state.events = events;
+    state.broadcasts = broadcasts;
     sortTemplates();
     setFormValues(communityForm, settings);
     setFormValues(whatsappForm, settings);
     renderTemplates();
     renderGroups();
     renderEvents();
+    renderBroadcasts();
     renderTiming(timing);
     if (templates.length) selectTemplate(templates[0].touchpoint_key);
     if (groups.length) selectGroup(groups[0].id);
     if (events.length) selectEvent(events[0].id);
+    if (broadcasts.length) await selectBroadcast(broadcasts[0].id);
+    else startNewBroadcast();
     await refreshWhatsApp();
     setStatus("Ready");
   } catch (error) {
@@ -515,6 +622,85 @@ async function saveEvent() {
   }
 }
 
+async function previewBroadcast() {
+  try {
+    setStatus("Generating broadcast preview...");
+    const raw = formValues(broadcastForm);
+    const result = await api("/api/broadcasts/preview", {
+      method: "POST",
+      body: JSON.stringify({ brief: raw.brief, link: raw.link || null }),
+    });
+    broadcastForm.elements.message.value = result.message;
+    setStatus("Broadcast preview ready");
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
+async function countBroadcastRecipients() {
+  try {
+    setStatus("Counting recipients...");
+    const raw = formValues(broadcastForm);
+    const result = await api("/api/broadcasts/recipients/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        manual_numbers: raw.manual_numbers,
+        include_approved_members: broadcastForm.elements.include_approved_members.checked,
+      }),
+    });
+    broadcastSummary.textContent = `${result.total_recipients} recipients: ${result.member_count} approved, ${result.manual_count} manual${result.invalid_numbers.length ? ` · invalid: ${result.invalid_numbers.join(", ")}` : ""}`;
+    setStatus("Recipient count ready");
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
+async function saveBroadcast() {
+  try {
+    if (!state.creatingBroadcast) {
+      setStatus("Existing broadcasts cannot be edited after creation.");
+      return;
+    }
+    setStatus("Saving broadcast draft...");
+    const raw = formValues(broadcastForm);
+    const saved = await api("/api/broadcasts", {
+      method: "POST",
+      body: JSON.stringify({
+        title: raw.title,
+        brief: raw.brief,
+        message: raw.message,
+        manual_numbers: raw.manual_numbers,
+        include_approved_members: broadcastForm.elements.include_approved_members.checked,
+      }),
+    });
+    state.broadcasts.unshift(saved);
+    await selectBroadcast(saved.id);
+    setStatus("Broadcast draft saved");
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
+async function sendBroadcast() {
+  if (!state.selectedBroadcastId || state.creatingBroadcast) {
+    setStatus("Save the broadcast draft before queueing it.");
+    return;
+  }
+  const broadcast = broadcastById(state.selectedBroadcastId);
+  if (!broadcast) return;
+  if (!confirm(`Queue this broadcast to ${broadcast.total_recipients} recipients? Sending is rate-limited but cannot be bulk-undone.`)) return;
+
+  try {
+    setStatus("Queueing broadcast...");
+    const queued = await api(`/api/broadcasts/${state.selectedBroadcastId}/send`, { method: "POST" });
+    state.broadcasts = state.broadcasts.map((item) => item.id === queued.id ? queued : item);
+    await selectBroadcast(queued.id);
+    setStatus("Broadcast queued");
+  } catch (error) {
+    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
+  }
+}
+
 async function refreshWhatsApp() {
   try {
     const [status, qr] = await Promise.all([
@@ -626,6 +812,11 @@ document.querySelector("#save-group").addEventListener("click", saveGroup);
 document.querySelector("#new-group").addEventListener("click", startNewGroup);
 document.querySelector("#save-event").addEventListener("click", saveEvent);
 document.querySelector("#new-event").addEventListener("click", startNewEvent);
+document.querySelector("#new-broadcast").addEventListener("click", startNewBroadcast);
+document.querySelector("#save-broadcast").addEventListener("click", saveBroadcast);
+document.querySelector("#send-broadcast").addEventListener("click", sendBroadcast);
+document.querySelector("#preview-broadcast").addEventListener("click", previewBroadcast);
+document.querySelector("#count-broadcast-recipients").addEventListener("click", countBroadcastRecipients);
 document.querySelector("#refresh-whatsapp").addEventListener("click", refreshWhatsApp);
 document.querySelector("#disconnect-whatsapp").addEventListener("click", disconnectWhatsApp);
 document.querySelector("#save-whatsapp").addEventListener("click", saveWhatsAppSettings);

@@ -8,6 +8,7 @@ toward the touchpoint's CTA without ever sounding like it's reading a script.
 
 import groq
 import logging
+import re
 from typing import List, Dict, Any, Optional
 
 from app.config import settings
@@ -72,7 +73,8 @@ class GroqService:
                 "CTA discipline:",
                 "- The CTA is the goal of this touchpoint. Every reply should either move one small step toward it, deliver it, or close after it is accepted.",
                 "- Be conversational, but do not drift into general chat once you have enough context to make the ask.",
-                "- If the CTA needs a link and the relevant link is available below, include it when making the ask.",
+                "- Only share a link when the current CTA specifically needs it or the member explicitly asks for it.",
+                "- Never send only a link. If you share a link, include one short sentence explaining why it matters.",
                 "- When sharing a link, put the full URL on its own line. Do not put commas, full stops, brackets, or extra words on the same line as the URL.",
                 "- If the member's latest message gives enough information, acknowledge it briefly and make the CTA explicit in the same reply.",
                 "- If you still need information before the CTA, ask exactly one short question that helps you make the CTA naturally.",
@@ -142,7 +144,7 @@ class GroqService:
             links.append(f"- Operator Session: {client_data['operator_session_link']}")
 
         if links:
-            parts.append("Community links (share when relevant to the conversation):")
+            parts.append("Community links (available only when directly relevant to the current CTA or member request):")
             parts.append("\n".join(links))
             parts.append("")
 
@@ -167,6 +169,8 @@ class GroqService:
             "- Private WhatsApp is for guidance and check-ins. Meaningful updates, asks, wins, offers, and opportunities should be routed back into the MBN groups.",
             "- Introduce the ecosystem progressively. Mention one relevant group or next action at a time instead of listing everything.",
             "- For a first intro, ask the member to share who they are, what they are building, and what support or goal they are focused on. They must send/post it themselves.",
+            "- Every proactive message must contain a clear reason for the message today.",
+            "- If the conversation history is stale or unrelated, use the current touchpoint as the source of truth.",
         ]
         parts.append("\n".join(operating_lines))
         parts.append("")
@@ -181,7 +185,8 @@ class GroqService:
             "- Never say 'as an AI' or anything that breaks the persona.",
             "- If the member asks something outside the community context, answer helpfully and briefly, then return naturally.",
             "- Do not start with broad lines like 'building a community can be challenging' unless the member specifically asks about building a community.",
-            "- When the CTA has been delivered and the member has acknowledged it — close the touchpoint warmly.",
+            "- Do not send standalone closers like 'bye for now', 'talk soon', or 'chat later'.",
+            "- When wrapping up, make the closing useful by tying it to the member's next community action.",
             "- Do not keep the conversation going unnecessarily once the goal is achieved.",
             f"- Tone: {client_data.get('agent_tone', 'warm and conversational')}.",
         ]
@@ -196,7 +201,7 @@ class GroqService:
         Map 'member' → 'user', 'agent' → 'assistant'.
         """
         formatted = []
-        for msg in messages:
+        for msg in messages[-12:]:
             role = "user" if msg["role"] == "member" else "assistant"
             formatted.append({"role": role, "content": msg["content"]})
         return formatted
@@ -216,8 +221,43 @@ class GroqService:
             f"Brief: {template.get('brief', '')}\n\n"
             "Important: do not reuse a previous welcome or Day 1 opener unless this touchpoint is explicitly a welcome. "
             "If this is a follow-up, reminder, check-in, invite, feedback request, or escalation, write that specific message. "
-            "Keep it to 1-3 sentences and make the CTA clear when appropriate."
+            "Keep it to 1-3 sentences and make the CTA clear when appropriate. "
+            "Do not send only a link. Do not say 'bye for now' or any standalone goodbye."
         )
+
+    def _build_scheduled_instruction(self, template: Dict[str, Any]) -> str:
+        return (
+            "Send the current scheduled WhatsApp touchpoint now. Treat previous conversation history only as background.\n"
+            f"Touchpoint key: {template.get('touchpoint_key', '')}\n"
+            f"Purpose: {template.get('purpose', '')}\n"
+            f"CTA: {template.get('cta', '')}\n"
+            f"Brief: {template.get('brief', '')}\n\n"
+            "The response must be meaningful by itself, mention why you are messaging today, and contain one clear next action or question. "
+            "Do not continue an old closing. Do not send only a URL. Do not invent details."
+        )
+
+    def _is_low_quality_response(self, response: str) -> bool:
+        text = (response or "").strip()
+        if not text:
+            return True
+        lowered = text.lower()
+        url_pattern = r"https?://\S+"
+        without_urls = re.sub(url_pattern, "", text).strip()
+        if re.search(url_pattern, text) and len(without_urls) < 25:
+            return True
+        bad_standalone = {
+            "bye",
+            "bye for now",
+            "talk soon",
+            "chat later",
+            "see you around",
+            "that's all for now",
+        }
+        if lowered.strip(" .!?,") in bad_standalone:
+            return True
+        if len(text.split()) < 5:
+            return True
+        return False
 
     def generate_response(
         self,
@@ -225,6 +265,7 @@ class GroqService:
         member: Dict[str, Any],
         messages: List[Dict[str, Any]],
         template: Optional[Dict[str, Any]] = None,
+        force_touchpoint_prompt: bool = False,
     ) -> str:
         """
         Generate an AI response given full V2 context.
@@ -241,7 +282,12 @@ class GroqService:
 
         system_prompt = self._build_system_prompt(client_data, member, template)
         formatted_history = self._format_history(messages)
-        if not formatted_history:
+        if force_touchpoint_prompt and template:
+            formatted_history.append({
+                "role": "user",
+                "content": self._build_scheduled_instruction(template),
+            })
+        elif not formatted_history:
             formatted_history = [{
                 "role": "user",
                 "content": self._build_opening_instruction(template),
@@ -259,11 +305,30 @@ class GroqService:
                     {"role": "system", "content": system_prompt},
                     *formatted_history,
                 ],
-                temperature=0.7,
-                max_tokens=500,
+                temperature=0.35,
+                max_tokens=350,
             )
 
             response = chat_completion.choices[0].message.content
+            if self._is_low_quality_response(response):
+                logger.warning(f"Low-quality Groq response detected, retrying: {response[:120]}")
+                retry_completion = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        *formatted_history,
+                        {
+                            "role": "user",
+                            "content": (
+                                "Rewrite your last response. It must be 1-3 useful WhatsApp sentences, grounded in MBN, "
+                                "with one clear next action or question. Do not send only a link and do not use a standalone goodbye."
+                            ),
+                        },
+                    ],
+                    temperature=0.25,
+                    max_tokens=250,
+                )
+                response = retry_completion.choices[0].message.content
             logger.info(f"Groq response ({len(response)} chars): {response[:80]}...")
             return response
 
@@ -286,7 +351,8 @@ class GroqService:
         nudge_prompt = (
             "The member hasn't replied yet. Send a very short, warm follow-up message "
             "(1 sentence max). Do not repeat the original question. Just a gentle nudge. "
-            "Something like 'Hey, no pressure — just checking in!' but personalised to the context."
+            "It must be specific to the current MBN touchpoint and useful by itself. "
+            "Do not send only a link. Do not say bye, bye for now, talk soon, or any standalone closing."
         )
 
         try:
@@ -296,17 +362,63 @@ class GroqService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": nudge_prompt},
                 ],
-                temperature=0.7,
+                temperature=0.35,
                 max_tokens=150,
             )
 
             response = chat_completion.choices[0].message.content
+            if self._is_low_quality_response(response):
+                logger.warning(f"Low-quality Groq nudge detected, using fallback: {response[:120]}")
+                if template and template.get("fallback_message"):
+                    return template["fallback_message"]
+                purpose = template.get("purpose") if template else "what we were discussing"
+                return f"Quick check-in on {purpose.lower()} — reply when you can."
             logger.info(f"Groq nudge ({len(response)} chars): {response[:80]}...")
             return response
 
         except Exception as e:
             logger.exception(f"Groq nudge API call failed: {e}")
             return "Hey! Just checking in — no rush, I'm here when you're ready."
+
+    def generate_broadcast(
+        self,
+        client_data: Dict[str, Any],
+        brief: str,
+        link: Optional[str] = None,
+    ) -> str:
+        """Generate a concise manual broadcast message for admin approval."""
+        system_prompt = "\n".join([
+            f"You write manual WhatsApp broadcasts for {client_data.get('community_name', 'the community')}.",
+            f"About the community: {client_data.get('community_description', '')}",
+            "Rules:",
+            "- Write one broadcast announcement, not a personal reply.",
+            "- Keep it to 1-3 short WhatsApp sentences.",
+            "- Do not pretend the message is uniquely personal to the recipient.",
+            "- Do not claim the member is registered, approved, selected, or expected unless the brief says so.",
+            "- If a link is provided, include the full URL on its own line.",
+            "- Do not invent dates, venues, links, prices, speakers, or promises.",
+            f"- Tone: {client_data.get('agent_tone', 'warm and conversational')}.",
+        ])
+        user_prompt = f"Broadcast brief: {brief.strip()}"
+        if link:
+            user_prompt += f"\nLink to include: {link.strip()}"
+
+        try:
+            chat_completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.5,
+                max_tokens=250,
+            )
+            response = chat_completion.choices[0].message.content
+            logger.info(f"Groq broadcast ({len(response)} chars): {response[:80]}...")
+            return response
+        except Exception as e:
+            logger.exception(f"Groq broadcast generation failed: {e}")
+            return brief.strip()
 
 
 groq_service = GroqService()

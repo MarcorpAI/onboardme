@@ -21,6 +21,7 @@ from app.models.touchpoint import JourneyTouchpoint
 from app.models.template import Template
 from app.models.community_group import CommunityGroup
 from app.models.community_event import CommunityEvent
+from app.models.broadcast import Broadcast, BroadcastRecipient
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,42 @@ def _community_event_to_dict(e: CommunityEvent) -> Dict[str, Any]:
     }
 
 
+def _broadcast_to_dict(b: Broadcast) -> Dict[str, Any]:
+    return {
+        "id": b.id,
+        "client_id": b.client_id,
+        "title": b.title,
+        "brief": b.brief,
+        "message": b.message,
+        "status": b.status,
+        "recipient_source": b.recipient_source,
+        "include_approved_members": b.include_approved_members,
+        "member_count": b.member_count,
+        "manual_count": b.manual_count,
+        "total_recipients": b.total_recipients,
+        "created_at": b.created_at.isoformat() if b.created_at else None,
+        "queued_at": b.queued_at.isoformat() if b.queued_at else None,
+        "started_at": b.started_at.isoformat() if b.started_at else None,
+        "completed_at": b.completed_at.isoformat() if b.completed_at else None,
+        "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+    }
+
+
+def _broadcast_recipient_to_dict(r: BroadcastRecipient) -> Dict[str, Any]:
+    return {
+        "id": r.id,
+        "broadcast_id": r.broadcast_id,
+        "member_id": r.member_id,
+        "whatsapp": r.whatsapp,
+        "source": r.source,
+        "status": r.status,
+        "attempts": r.attempts,
+        "last_error": r.last_error,
+        "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
 # ═══════════════════════════════════════════════════════════
 # Initialisation
 # ═══════════════════════════════════════════════════════════
@@ -210,6 +247,44 @@ async def init_db():
         """))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_community_events_client_id ON community_events(client_id)"))
         await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_community_events_starts_at ON community_events(starts_at)"))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS broadcasts (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                brief TEXT,
+                message TEXT NOT NULL,
+                status TEXT DEFAULT 'draft',
+                recipient_source TEXT DEFAULT 'manual',
+                include_approved_members BOOLEAN DEFAULT FALSE,
+                member_count INTEGER DEFAULT 0,
+                manual_count INTEGER DEFAULT 0,
+                total_recipients INTEGER DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                queued_at TIMESTAMPTZ,
+                started_at TIMESTAMPTZ,
+                completed_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS broadcast_recipients (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                broadcast_id UUID NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE,
+                member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+                whatsapp TEXT NOT NULL,
+                source TEXT DEFAULT 'manual',
+                status TEXT DEFAULT 'pending',
+                attempts INTEGER DEFAULT 0,
+                last_error TEXT,
+                sent_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_broadcasts_client_id ON broadcasts(client_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_broadcasts_status ON broadcasts(status)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_broadcast_id ON broadcast_recipients(broadcast_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_status ON broadcast_recipients(status)"))
     logger.info("Database tables initialised")
 
 
@@ -820,6 +895,203 @@ async def get_active_members(client_id: uuid.UUID) -> List[Dict[str, Any]]:
         result = await db.execute(stmt)
         members = result.scalars().all()
         return [_member_to_dict(m) for m in members]
+
+
+async def get_approved_members(client_id: uuid.UUID) -> List[Dict[str, Any]]:
+    """Get approved members for manual broadcasts."""
+    async with async_session_maker() as db:
+        stmt = select(Member).where(
+            and_(
+                Member.client_id == client_id,
+                Member.state.in_(["pending", "active"]),
+                Member.approved_at != None,
+            )
+        ).order_by(Member.created_at.asc())
+        result = await db.execute(stmt)
+        members = result.scalars().all()
+        return [_member_to_dict(m) for m in members]
+
+
+# ═══════════════════════════════════════════════════════════
+# Broadcasts
+# ═══════════════════════════════════════════════════════════
+
+async def create_broadcast(
+    client_id: uuid.UUID,
+    title: str,
+    message: str,
+    recipients: List[Dict[str, Any]],
+    brief: Optional[str] = None,
+    include_approved_members: bool = False,
+) -> Dict[str, Any]:
+    """Create a broadcast draft and its recipient rows."""
+    member_count = sum(1 for r in recipients if r.get("source") == "member")
+    manual_count = sum(1 for r in recipients if r.get("source") == "manual")
+    if include_approved_members and manual_count:
+        source = "mixed"
+    elif include_approved_members:
+        source = "members"
+    else:
+        source = "manual"
+
+    now = datetime.now(timezone.utc)
+    async with async_session_maker() as db:
+        broadcast = Broadcast(
+            client_id=client_id,
+            title=title,
+            brief=brief,
+            message=message,
+            status="draft",
+            recipient_source=source,
+            include_approved_members=include_approved_members,
+            member_count=member_count,
+            manual_count=manual_count,
+            total_recipients=len(recipients),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(broadcast)
+        await db.flush()
+
+        for recipient in recipients:
+            db.add(BroadcastRecipient(
+                broadcast_id=broadcast.id,
+                member_id=recipient.get("member_id"),
+                whatsapp=recipient["whatsapp"],
+                source=recipient.get("source", "manual"),
+                status="pending",
+                attempts=0,
+                created_at=now,
+            ))
+
+        await db.commit()
+        await db.refresh(broadcast)
+        return _broadcast_to_dict(broadcast)
+
+
+async def list_broadcasts(client_id: uuid.UUID, limit: int = 50) -> List[Dict[str, Any]]:
+    async with async_session_maker() as db:
+        stmt = (
+            select(Broadcast)
+            .where(Broadcast.client_id == client_id)
+            .order_by(Broadcast.created_at.desc())
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        broadcasts = result.scalars().all()
+        return [_broadcast_to_dict(b) for b in broadcasts]
+
+
+async def get_broadcast(broadcast_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    async with async_session_maker() as db:
+        broadcast = await db.get(Broadcast, broadcast_id)
+        return _broadcast_to_dict(broadcast) if broadcast else None
+
+
+async def get_broadcast_recipients(
+    broadcast_id: uuid.UUID,
+    limit: Optional[int] = None,
+    statuses: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    async with async_session_maker() as db:
+        filters = [BroadcastRecipient.broadcast_id == broadcast_id]
+        if statuses:
+            filters.append(BroadcastRecipient.status.in_(statuses))
+        stmt = select(BroadcastRecipient).where(and_(*filters)).order_by(BroadcastRecipient.created_at.asc())
+        if limit:
+            stmt = stmt.limit(limit)
+        result = await db.execute(stmt)
+        recipients = result.scalars().all()
+        return [_broadcast_recipient_to_dict(r) for r in recipients]
+
+
+async def queue_broadcast(broadcast_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    async with async_session_maker() as db:
+        broadcast = await db.get(Broadcast, broadcast_id)
+        if not broadcast:
+            return None
+        if broadcast.status not in {"draft", "failed"}:
+            return _broadcast_to_dict(broadcast)
+        now = datetime.now(timezone.utc)
+        broadcast.status = "queued"
+        broadcast.queued_at = now
+        broadcast.updated_at = now
+        await db.commit()
+        await db.refresh(broadcast)
+        return _broadcast_to_dict(broadcast)
+
+
+async def get_next_broadcast_to_send() -> Optional[Dict[str, Any]]:
+    async with async_session_maker() as db:
+        stmt = (
+            select(Broadcast)
+            .where(Broadcast.status.in_(["queued", "sending"]))
+            .order_by(Broadcast.queued_at.asc().nulls_last(), Broadcast.created_at.asc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        broadcast = result.scalar_one_or_none()
+        return _broadcast_to_dict(broadcast) if broadcast else None
+
+
+async def mark_broadcast_sending(broadcast_id: uuid.UUID):
+    async with async_session_maker() as db:
+        broadcast = await db.get(Broadcast, broadcast_id)
+        if not broadcast:
+            return
+        now = datetime.now(timezone.utc)
+        broadcast.status = "sending"
+        if not broadcast.started_at:
+            broadcast.started_at = now
+        broadcast.updated_at = now
+        await db.commit()
+
+
+async def mark_broadcast_completed_if_done(broadcast_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    async with async_session_maker() as db:
+        pending_stmt = select(func.count()).select_from(BroadcastRecipient).where(
+            and_(
+                BroadcastRecipient.broadcast_id == broadcast_id,
+                BroadcastRecipient.status == "pending",
+            )
+        )
+        pending = (await db.execute(pending_stmt)).scalar() or 0
+
+        broadcast = await db.get(Broadcast, broadcast_id)
+        if not broadcast:
+            return None
+
+        now = datetime.now(timezone.utc)
+        if pending == 0 and broadcast.status in {"queued", "sending"}:
+            broadcast.status = "completed"
+            broadcast.completed_at = now
+        broadcast.updated_at = now
+        await db.commit()
+        await db.refresh(broadcast)
+        return _broadcast_to_dict(broadcast)
+
+
+async def mark_broadcast_recipient_sent(recipient_id: uuid.UUID):
+    async with async_session_maker() as db:
+        recipient = await db.get(BroadcastRecipient, recipient_id)
+        if not recipient:
+            return
+        recipient.status = "sent"
+        recipient.attempts = (recipient.attempts or 0) + 1
+        recipient.last_error = None
+        recipient.sent_at = datetime.now(timezone.utc)
+        await db.commit()
+
+
+async def mark_broadcast_recipient_failed(recipient_id: uuid.UUID, error: str, retry_limit: int):
+    async with async_session_maker() as db:
+        recipient = await db.get(BroadcastRecipient, recipient_id)
+        if not recipient:
+            return
+        recipient.attempts = (recipient.attempts or 0) + 1
+        recipient.last_error = error[:500]
+        recipient.status = "failed" if recipient.attempts >= retry_limit else "pending"
+        await db.commit()
 
 
 # ═══════════════════════════════════════════════════════════

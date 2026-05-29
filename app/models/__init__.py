@@ -6,6 +6,7 @@ from app.models.touchpoint import JourneyTouchpoint
 from app.models.template import Template
 from app.models.community_group import CommunityGroup
 from app.models.community_event import CommunityEvent
+from app.models.broadcast import Broadcast, BroadcastRecipient
 
 __all__ = [
     "Client",
@@ -16,4 +17,6 @@ __all__ = [
     "Template",
     "CommunityGroup",
     "CommunityEvent",
+    "Broadcast",
+    "BroadcastRecipient",
 ]

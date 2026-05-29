@@ -31,6 +31,7 @@
           <button class="nav-item" data-panel="groups">Groups</button>
           <button class="nav-item" data-panel="events">Events</button>
           <button class="nav-item" data-panel="templates">Messages</button>
+          <button class="nav-item" data-panel="broadcasts">Broadcasts</button>
           <button class="nav-item" data-panel="whatsapp">WhatsApp</button>
           <button class="nav-item" data-panel="timing">Timing</button>
         </nav>
@@ -179,6 +180,47 @@
               <label>CTA or link <textarea name="cta" rows="3" placeholder="Optional. Example: get them to book a call, reply, or click a link."></textarea></label>
               <label>AI rules & action guide <textarea name="brief" rows="5"></textarea></label>
               <label>Fallback message <textarea name="fallback_message" rows="3"></textarea></label>
+            </form>
+          </div>
+        </section>
+
+        <section id="broadcasts" class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Manual send</p>
+              <h2>Broadcasts</h2>
+            </div>
+            <div class="actions">
+              <button id="new-broadcast" class="secondary">New broadcast</button>
+              <button id="save-broadcast" class="secondary">Save draft</button>
+              <button id="send-broadcast" class="primary">Queue send</button>
+            </div>
+          </div>
+
+          <div class="broadcast-layout">
+            <div>
+              <div id="broadcast-list" class="broadcast-list"></div>
+              <div id="broadcast-recipients" class="recipient-list"></div>
+            </div>
+
+            <form id="broadcast-form" class="broadcast-editor">
+              <div class="editor-topline">
+                <div>
+                  <p id="broadcast-id" class="template-key">new_broadcast</p>
+                  <input name="title" class="template-title-input" placeholder="Broadcast title" />
+                </div>
+                <strong id="broadcast-status" class="status-pill">Draft</strong>
+              </div>
+              <label>Brief for Groq <textarea name="brief" rows="4" placeholder="What should this broadcast announce?"></textarea></label>
+              <label>Optional link for preview <input name="link" autocomplete="off" /></label>
+              <div class="actions">
+                <button id="preview-broadcast" class="secondary" type="button">Generate preview</button>
+                <button id="count-broadcast-recipients" class="secondary" type="button">Count recipients</button>
+              </div>
+              <label>Final message <textarea name="message" rows="6" placeholder="Generate a preview or write the exact message to send."></textarea></label>
+              <label class="switch inline"><input name="include_approved_members" type="checkbox" /> Include approved members</label>
+              <label>Manual numbers <textarea name="manual_numbers" rows="7" placeholder="One number per line. Supports 091..., +234..., 234..."></textarea></label>
+              <div id="broadcast-summary" class="broadcast-summary"></div>
             </form>
           </div>
         </section>

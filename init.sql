@@ -114,6 +114,38 @@ CREATE TABLE IF NOT EXISTS community_events (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS broadcasts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    brief TEXT,
+    message TEXT NOT NULL,
+    status TEXT DEFAULT 'draft',
+    recipient_source TEXT DEFAULT 'manual',
+    include_approved_members BOOLEAN DEFAULT FALSE,
+    member_count INT DEFAULT 0,
+    manual_count INT DEFAULT 0,
+    total_recipients INT DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    queued_at TIMESTAMPTZ,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS broadcast_recipients (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    broadcast_id UUID NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE,
+    member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+    whatsapp TEXT NOT NULL,
+    source TEXT DEFAULT 'manual',
+    status TEXT DEFAULT 'pending',
+    attempts INT DEFAULT 0,
+    last_error TEXT,
+    sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_members_whatsapp ON members(whatsapp);
 CREATE INDEX IF NOT EXISTS idx_members_whatsapp_lid ON members(whatsapp_lid);
@@ -135,3 +167,7 @@ CREATE INDEX IF NOT EXISTS idx_templates_touchpoint_key ON templates(touchpoint_
 CREATE INDEX IF NOT EXISTS idx_community_groups_client_id ON community_groups(client_id);
 CREATE INDEX IF NOT EXISTS idx_community_events_client_id ON community_events(client_id);
 CREATE INDEX IF NOT EXISTS idx_community_events_starts_at ON community_events(starts_at);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_client_id ON broadcasts(client_id);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_status ON broadcasts(status);
+CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_broadcast_id ON broadcast_recipients(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_status ON broadcast_recipients(status);

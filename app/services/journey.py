@@ -26,7 +26,6 @@ from app.services.database import (
     get_conversation_messages,
     close_conversation,
     update_touchpoint,
-    get_open_conversation,
     get_groups_for_client,
     get_upcoming_events_for_client,
     get_events_due_for_reminders,
@@ -545,12 +544,14 @@ async def run_automation_loop():
                 timeout_stale_touchpoints,
                 schedule_community_rhythm,
                 schedule_event_reminders,
+                process_broadcasts,
             )
 
             await timeout_stale_touchpoints()
             await nudge_silent_conversations()
             await schedule_community_rhythm()
             await schedule_event_reminders()
+            await process_broadcasts()
             await fire_pending_touchpoints()
         except Exception as e:
             logger.exception(f"Automation loop error: {e}")
@@ -735,13 +736,12 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
             template["community_groups"] = await get_groups_for_client(client_data["id"])
             template["community_events"] = await get_upcoming_events_for_client(client_data["id"])
 
-        # 5. Use the current open conversation when possible so community
-        # activities can be woven into an active chat instead of skipped.
-        conv = await get_open_conversation(member["id"])
-        if not conv:
-            conv = await create_conversation(member["id"], touchpoint_key)
+        # 5. Scheduled proactive messages get their own conversation context.
+        # Reusing an arbitrary open chat can make the model continue stale
+        # closers or answer an old member message instead of today's touchpoint.
+        conv = await create_conversation(member["id"], touchpoint_key)
         conversation_id = conv["id"]
-        history = await get_conversation_messages(conversation_id) if conv else []
+        history = []
 
         # 6. Call AI to generate opening message
         response_text = groq_service.generate_response(
@@ -749,6 +749,7 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
             member=member,
             messages=history,
             template=template,
+            force_touchpoint_prompt=True,
         )
 
         # 7. Send via WhatsApp

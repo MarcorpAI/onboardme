@@ -29,10 +29,20 @@ from app.services.database import (
     get_events_for_client,
     get_event,
     upsert_event,
+    list_broadcasts,
+    get_broadcast,
+    get_broadcast_recipients,
 )
 from app.config import settings as app_settings
 from app.services.journey import COMMUNITY_TOUCHPOINT_KEYS
 from app.services.whatsapp import whatsapp_service
+from app.services.broadcasts import (
+    build_broadcast_recipients,
+    create_broadcast_draft,
+    generate_broadcast_message,
+    parse_manual_numbers,
+    queue_existing_broadcast,
+)
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -188,6 +198,63 @@ class EventUpdate(BaseModel):
     active: Optional[bool] = None
 
 
+class BroadcastResponse(BaseModel):
+    id: str
+    title: str
+    brief: Optional[str] = None
+    message: str
+    status: str
+    recipient_source: str
+    include_approved_members: bool
+    member_count: int
+    manual_count: int
+    total_recipients: int
+    created_at: Optional[str] = None
+    queued_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class BroadcastRecipientResponse(BaseModel):
+    id: str
+    member_id: Optional[str] = None
+    whatsapp: str
+    source: str
+    status: str
+    attempts: int = 0
+    last_error: Optional[str] = None
+    sent_at: Optional[str] = None
+
+
+class BroadcastCreate(BaseModel):
+    title: str
+    brief: Optional[str] = None
+    message: str
+    manual_numbers: Optional[str] = ""
+    include_approved_members: bool = False
+
+
+class BroadcastPreviewRequest(BaseModel):
+    brief: str
+    link: Optional[str] = None
+
+
+class BroadcastPreviewResponse(BaseModel):
+    message: str
+
+
+class BroadcastRecipientPreviewRequest(BaseModel):
+    manual_numbers: Optional[str] = ""
+    include_approved_members: bool = False
+
+
+class BroadcastRecipientPreviewResponse(BaseModel):
+    total_recipients: int
+    member_count: int
+    manual_count: int
+    invalid_numbers: list[str]
+
+
 class LoginRequest(BaseModel):
     token: str
 
@@ -244,6 +311,38 @@ def _event_response(e: dict) -> EventResponse:
         link=e.get("link"),
         reminder_hours_before=e.get("reminder_hours_before") or 24,
         active=e.get("active", True),
+    )
+
+
+def _broadcast_response(b: dict) -> BroadcastResponse:
+    return BroadcastResponse(
+        id=str(b["id"]),
+        title=b["title"],
+        brief=b.get("brief"),
+        message=b["message"],
+        status=b["status"],
+        recipient_source=b.get("recipient_source", "manual"),
+        include_approved_members=b.get("include_approved_members", False),
+        member_count=b.get("member_count") or 0,
+        manual_count=b.get("manual_count") or 0,
+        total_recipients=b.get("total_recipients") or 0,
+        created_at=b.get("created_at"),
+        queued_at=b.get("queued_at"),
+        started_at=b.get("started_at"),
+        completed_at=b.get("completed_at"),
+    )
+
+
+def _broadcast_recipient_response(r: dict) -> BroadcastRecipientResponse:
+    return BroadcastRecipientResponse(
+        id=str(r["id"]),
+        member_id=str(r["member_id"]) if r.get("member_id") else None,
+        whatsapp=r["whatsapp"],
+        source=r.get("source", "manual"),
+        status=r.get("status", "pending"),
+        attempts=r.get("attempts") or 0,
+        last_error=r.get("last_error"),
+        sent_at=r.get("sent_at"),
     )
 
 
@@ -534,6 +633,112 @@ async def update_event(event_id: UUID, updates: EventUpdate):
         active=updates.active if updates.active is not None else existing.get("active", True),
     )
     return _event_response(result)
+
+
+# ═══════════════════════════════════════════════════════════
+# Broadcasts
+# ═══════════════════════════════════════════════════════════
+
+
+@router.get("/broadcasts", response_model=list[BroadcastResponse], dependencies=[Depends(require_admin_token)])
+async def list_broadcast_records():
+    """List recent manual broadcasts."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+    broadcasts = await list_broadcasts(client["id"])
+    return [_broadcast_response(b) for b in broadcasts]
+
+
+@router.get("/broadcasts/{broadcast_id}", dependencies=[Depends(require_admin_token)])
+async def get_broadcast_record(broadcast_id: UUID):
+    """Get one broadcast and its recipients."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+    broadcast = await get_broadcast(broadcast_id)
+    if not broadcast or broadcast["client_id"] != client["id"]:
+        raise HTTPException(status_code=404, detail="Broadcast not found")
+    recipients = await get_broadcast_recipients(broadcast_id, limit=250)
+    return {
+        "broadcast": _broadcast_response(broadcast),
+        "recipients": [_broadcast_recipient_response(r) for r in recipients],
+    }
+
+
+@router.post("/broadcasts/preview", response_model=BroadcastPreviewResponse, dependencies=[Depends(require_admin_token)])
+async def preview_broadcast(payload: BroadcastPreviewRequest):
+    """Generate a WhatsApp broadcast preview from an admin brief."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+    if not payload.brief.strip():
+        raise HTTPException(status_code=422, detail="Brief is required")
+    message = generate_broadcast_message(client, payload.brief, payload.link)
+    return BroadcastPreviewResponse(message=message)
+
+
+@router.post("/broadcasts/recipients/preview", response_model=BroadcastRecipientPreviewResponse, dependencies=[Depends(require_admin_token)])
+async def preview_broadcast_recipients(payload: BroadcastRecipientPreviewRequest):
+    """Preview recipient counts without creating a broadcast."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+    manual_numbers, invalid_numbers = parse_manual_numbers(payload.manual_numbers or "")
+    from app.services.database import get_approved_members
+    approved_members = await get_approved_members(client["id"]) if payload.include_approved_members else []
+    recipients = build_broadcast_recipients(approved_members, manual_numbers, payload.include_approved_members)
+    member_count = sum(1 for r in recipients if r.get("source") == "member")
+    manual_count = sum(1 for r in recipients if r.get("source") == "manual")
+    return BroadcastRecipientPreviewResponse(
+        total_recipients=len(recipients),
+        member_count=member_count,
+        manual_count=manual_count,
+        invalid_numbers=invalid_numbers,
+    )
+
+
+@router.post("/broadcasts", response_model=BroadcastResponse, dependencies=[Depends(require_admin_token)])
+async def create_broadcast_record(payload: BroadcastCreate):
+    """Create a manual broadcast draft and recipient rows."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+    if not payload.title.strip():
+        raise HTTPException(status_code=422, detail="Title is required")
+    if not payload.message.strip():
+        raise HTTPException(status_code=422, detail="Message is required")
+
+    try:
+        broadcast = await create_broadcast_draft(
+            client_data=client,
+            title=payload.title.strip(),
+            message=payload.message.strip(),
+            brief=payload.brief.strip() if payload.brief else None,
+            manual_numbers_raw=payload.manual_numbers or "",
+            include_approved_members=payload.include_approved_members,
+        )
+        return _broadcast_response(broadcast)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/broadcasts/{broadcast_id}/send", response_model=BroadcastResponse, dependencies=[Depends(require_admin_token)])
+async def send_broadcast_record(broadcast_id: UUID):
+    """Queue a draft broadcast for rate-limited sending."""
+    client = await get_default_client()
+    if not client:
+        raise HTTPException(status_code=404, detail="No client configured")
+    broadcast = await get_broadcast(broadcast_id)
+    if not broadcast or broadcast["client_id"] != client["id"]:
+        raise HTTPException(status_code=404, detail="Broadcast not found")
+    if broadcast["status"] not in {"draft", "failed"}:
+        raise HTTPException(status_code=409, detail="Broadcast is already queued or sent")
+
+    queued = await queue_existing_broadcast(broadcast_id)
+    if not queued:
+        raise HTTPException(status_code=404, detail="Broadcast not found")
+    return _broadcast_response(queued)
 
 
 # ═══════════════════════════════════════════════════════════

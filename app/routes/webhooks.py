@@ -7,6 +7,7 @@ OnboardMe V2 — Webhook Routes
 
 import logging
 from datetime import datetime, timezone
+from datetime import timedelta
 from typing import Optional, List
 from uuid import UUID
 
@@ -272,6 +273,11 @@ async def handle_inbound(data: dict):
 
         # ─── Step 4: Find or create conversation ───
         conv = await get_open_conversation(member_id)
+        if conv and conv.get("opened_at"):
+            opened_at = datetime.fromisoformat(conv["opened_at"].replace("Z", "+00:00"))
+            if opened_at < datetime.now(timezone.utc) - timedelta(hours=48):
+                await close_conversation(conv["id"])
+                conv = None
 
         # If no open conversation exists, create one for free-form inbound
         touchpoint_key = None

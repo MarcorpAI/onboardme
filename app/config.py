@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     whatsapp_bridge_url: str = "http://localhost:3000"
     human_escalation_whatsapp: str = ""
 
+    # Manual broadcasts
+    broadcast_messages_per_minute: int = 10
+    broadcast_batch_size: int = 10
+    broadcast_retry_limit: int = 2
+    broadcast_max_recipients: int = 500
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000

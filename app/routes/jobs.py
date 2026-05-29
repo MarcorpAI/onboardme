@@ -42,6 +42,7 @@ from app.services.journey import (
     is_community_touchpoint_key,
 )
 from app.services.whatsapp import whatsapp_service
+from app.services.broadcasts import process_broadcast_queue
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -212,6 +213,23 @@ async def schedule_event_reminders():
         result["created"],
         result["events"],
         result["members"],
+    )
+    return result
+
+
+@router.post("/broadcasts")
+async def process_broadcasts():
+    """
+    Sends a small rate-limited batch from the oldest queued manual broadcast.
+    Runs every automation loop tick.
+    """
+    result = await process_broadcast_queue()
+    logger.info(
+        "broadcasts: broadcast=%s processed=%s sent=%s failed=%s",
+        result.get("broadcast_id"),
+        result.get("processed"),
+        result.get("sent"),
+        result.get("failed"),
     )
     return result
 
