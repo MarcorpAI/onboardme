@@ -20,7 +20,6 @@ from app.services.database import (
     get_open_conversation,
     save_message,
 )
-from app.services.groq import groq_service
 from app.services.whatsapp import whatsapp_service
 
 logger = logging.getLogger(__name__)
@@ -86,10 +85,6 @@ def build_broadcast_recipients(
         })
 
     return list(recipients_by_number.values())
-
-
-def generate_broadcast_message(client_data: Dict[str, Any], brief: str, link: Optional[str] = None) -> str:
-    return groq_service.generate_broadcast(client_data=client_data, brief=brief, link=link)
 
 
 async def create_broadcast_draft(

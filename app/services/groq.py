@@ -380,45 +380,4 @@ class GroqService:
             logger.exception(f"Groq nudge API call failed: {e}")
             return "Hey! Just checking in — no rush, I'm here when you're ready."
 
-    def generate_broadcast(
-        self,
-        client_data: Dict[str, Any],
-        brief: str,
-        link: Optional[str] = None,
-    ) -> str:
-        """Generate a concise manual broadcast message for admin approval."""
-        system_prompt = "\n".join([
-            f"You write manual WhatsApp broadcasts for {client_data.get('community_name', 'the community')}.",
-            f"About the community: {client_data.get('community_description', '')}",
-            "Rules:",
-            "- Write one broadcast announcement, not a personal reply.",
-            "- Keep it to 1-3 short WhatsApp sentences.",
-            "- Do not pretend the message is uniquely personal to the recipient.",
-            "- Do not claim the member is registered, approved, selected, or expected unless the brief says so.",
-            "- If a link is provided, include the full URL on its own line.",
-            "- Do not invent dates, venues, links, prices, speakers, or promises.",
-            f"- Tone: {client_data.get('agent_tone', 'warm and conversational')}.",
-        ])
-        user_prompt = f"Broadcast brief: {brief.strip()}"
-        if link:
-            user_prompt += f"\nLink to include: {link.strip()}"
-
-        try:
-            chat_completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.5,
-                max_tokens=250,
-            )
-            response = chat_completion.choices[0].message.content
-            logger.info(f"Groq broadcast ({len(response)} chars): {response[:80]}...")
-            return response
-        except Exception as e:
-            logger.exception(f"Groq broadcast generation failed: {e}")
-            return brief.strip()
-
-
 groq_service = GroqService()

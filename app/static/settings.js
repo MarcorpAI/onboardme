@@ -182,8 +182,6 @@ function emptyEvent() {
 function emptyBroadcast() {
   return {
     title: "",
-    brief: "",
-    link: "",
     message: "",
     manual_numbers: "",
     include_approved_members: false,
@@ -422,7 +420,6 @@ async function selectBroadcast(id) {
   broadcastStatus.textContent = broadcast.status;
   setFormValues(broadcastForm, {
     ...broadcast,
-    link: "",
     manual_numbers: "",
   });
   renderBroadcasts();
@@ -622,21 +619,6 @@ async function saveEvent() {
   }
 }
 
-async function previewBroadcast() {
-  try {
-    setStatus("Generating broadcast preview...");
-    const raw = formValues(broadcastForm);
-    const result = await api("/api/broadcasts/preview", {
-      method: "POST",
-      body: JSON.stringify({ brief: raw.brief, link: raw.link || null }),
-    });
-    broadcastForm.elements.message.value = result.message;
-    setStatus("Broadcast preview ready");
-  } catch (error) {
-    if (error.message !== "Unauthorized") setStatus(`Error: ${error.message}`);
-  }
-}
-
 async function countBroadcastRecipients() {
   try {
     setStatus("Counting recipients...");
@@ -667,7 +649,7 @@ async function saveBroadcast() {
       method: "POST",
       body: JSON.stringify({
         title: raw.title,
-        brief: raw.brief,
+        brief: "",
         message: raw.message,
         manual_numbers: raw.manual_numbers,
         include_approved_members: broadcastForm.elements.include_approved_members.checked,
@@ -815,7 +797,6 @@ document.querySelector("#new-event").addEventListener("click", startNewEvent);
 document.querySelector("#new-broadcast").addEventListener("click", startNewBroadcast);
 document.querySelector("#save-broadcast").addEventListener("click", saveBroadcast);
 document.querySelector("#send-broadcast").addEventListener("click", sendBroadcast);
-document.querySelector("#preview-broadcast").addEventListener("click", previewBroadcast);
 document.querySelector("#count-broadcast-recipients").addEventListener("click", countBroadcastRecipients);
 document.querySelector("#refresh-whatsapp").addEventListener("click", refreshWhatsApp);
 document.querySelector("#disconnect-whatsapp").addEventListener("click", disconnectWhatsApp);

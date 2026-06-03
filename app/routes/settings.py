@@ -39,7 +39,6 @@ from app.services.whatsapp import whatsapp_service
 from app.services.broadcasts import (
     build_broadcast_recipients,
     create_broadcast_draft,
-    generate_broadcast_message,
     parse_manual_numbers,
     queue_existing_broadcast,
 )
@@ -232,15 +231,6 @@ class BroadcastCreate(BaseModel):
     message: str
     manual_numbers: Optional[str] = ""
     include_approved_members: bool = False
-
-
-class BroadcastPreviewRequest(BaseModel):
-    brief: str
-    link: Optional[str] = None
-
-
-class BroadcastPreviewResponse(BaseModel):
-    message: str
 
 
 class BroadcastRecipientPreviewRequest(BaseModel):
@@ -664,18 +654,6 @@ async def get_broadcast_record(broadcast_id: UUID):
         "broadcast": _broadcast_response(broadcast),
         "recipients": [_broadcast_recipient_response(r) for r in recipients],
     }
-
-
-@router.post("/broadcasts/preview", response_model=BroadcastPreviewResponse, dependencies=[Depends(require_admin_token)])
-async def preview_broadcast(payload: BroadcastPreviewRequest):
-    """Generate a WhatsApp broadcast preview from an admin brief."""
-    client = await get_default_client()
-    if not client:
-        raise HTTPException(status_code=404, detail="No client configured")
-    if not payload.brief.strip():
-        raise HTTPException(status_code=422, detail="Brief is required")
-    message = generate_broadcast_message(client, payload.brief, payload.link)
-    return BroadcastPreviewResponse(message=message)
 
 
 @router.post("/broadcasts/recipients/preview", response_model=BroadcastRecipientPreviewResponse, dependencies=[Depends(require_admin_token)])

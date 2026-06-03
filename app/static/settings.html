@@ -211,13 +211,10 @@
                 </div>
                 <strong id="broadcast-status" class="status-pill">Draft</strong>
               </div>
-              <label>Brief for Groq <textarea name="brief" rows="4" placeholder="What should this broadcast announce?"></textarea></label>
-              <label>Optional link for preview <input name="link" autocomplete="off" /></label>
               <div class="actions">
-                <button id="preview-broadcast" class="secondary" type="button">Generate preview</button>
                 <button id="count-broadcast-recipients" class="secondary" type="button">Count recipients</button>
               </div>
-              <label>Final message <textarea name="message" rows="6" placeholder="Generate a preview or write the exact message to send."></textarea></label>
+              <label>Message to send <textarea name="message" rows="8" placeholder="Write the exact message that should be sent. It will not be edited by AI."></textarea></label>
               <label class="switch inline"><input name="include_approved_members" type="checkbox" /> Include approved members</label>
               <label>Manual numbers <textarea name="manual_numbers" rows="7" placeholder="One number per line. Supports 091..., +234..., 234..."></textarea></label>
               <div id="broadcast-summary" class="broadcast-summary"></div>
