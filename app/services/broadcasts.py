@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 import uuid
 
@@ -125,6 +126,26 @@ async def process_broadcast_queue() -> Dict[str, Any]:
     broadcast = await get_next_broadcast_to_send()
     if not broadcast:
         return {"broadcast_id": None, "processed": 0, "sent": 0, "failed": 0}
+
+    # Skip broadcasts that have been queued for more than 24 hours —
+    # their intended send window has passed and they should not send late.
+    queued_at = broadcast.get("queued_at")
+    if queued_at:
+        if isinstance(queued_at, str):
+            queued_at = datetime.fromisoformat(queued_at.replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) - queued_at > timedelta(hours=24):
+            logger.info(
+                "Skipping stale broadcast %s (%s) — queued %s ago (>24h)",
+                broadcast["id"], broadcast.get("title", ""),
+                datetime.now(timezone.utc) - queued_at,
+            )
+            from app.services.database import mark_broadcast_completed_if_done
+            await mark_broadcast_completed_if_done(broadcast["id"])
+            return {
+                "broadcast_id": str(broadcast["id"]),
+                "status": "skipped_stale",
+                "processed": 0, "sent": 0, "failed": 0,
+            }
 
     await mark_broadcast_sending(broadcast["id"])
     if not await whatsapp_service.is_connected():
