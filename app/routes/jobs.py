@@ -10,7 +10,7 @@ Jobs triggered by external cron scheduler (or APScheduler):
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
 
