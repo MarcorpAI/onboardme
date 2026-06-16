@@ -67,7 +67,26 @@ async def fire_pending_touchpoints():
         return {"error": "No client configured"}
 
     results = []
+    now = datetime.now(timezone.utc)
+
+    # Pre-filter: skip touchpoints more than 24h past their scheduled time
+    # These are stale (e.g. yesterday's weekly touchpoint retried today)
+    # and should not keep being retried.
+    stale_cutoff = now - timedelta(hours=24)
+
     for tp in pending_human:
+        tp_scheduled = datetime.fromisoformat(tp["scheduled_for"].replace("Z", "+00:00"))
+        if tp_scheduled < stale_cutoff:
+            await complete_touchpoint(tp["id"])
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "skipped",
+                "reason": "stale — scheduled more than 24h ago",
+            })
+            continue
+
         if not is_community_touchpoint_key(tp["touchpoint_key"]):
             await complete_touchpoint(tp["id"])
             results.append({
@@ -113,6 +132,18 @@ async def fire_pending_touchpoints():
         })
 
     for tp in pending:
+        tp_scheduled = datetime.fromisoformat(tp["scheduled_for"].replace("Z", "+00:00"))
+        if tp_scheduled < stale_cutoff:
+            await complete_touchpoint(tp["id"])
+            results.append({
+                "touchpoint_id": str(tp["id"]),
+                "touchpoint_key": tp["touchpoint_key"],
+                "member_id": str(tp["member_id"]),
+                "status": "skipped",
+                "reason": "stale — scheduled more than 24h ago",
+            })
+            continue
+
         if not is_community_touchpoint_key(tp["touchpoint_key"]):
             await complete_touchpoint(tp["id"])
             results.append({

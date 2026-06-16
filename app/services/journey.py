@@ -758,7 +758,8 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
 
         if not sent:
             logger.error(f"Failed to send message for touchpoint {touchpoint_key} to {recipient}")
-            # Still save the message but mark as failed send
+            # Save the message but complete the touchpoint so it does not
+            # keep getting retried by the cron loop.
             await save_message(
                 conversation_id=conversation_id,
                 member_id=member["id"],
@@ -766,6 +767,7 @@ async def fire_touchpoint(touchpoint_id: uuid.UUID) -> bool:
                 content=response_text,
                 touchpoint_key=touchpoint_key,
             )
+            await complete_touchpoint(touchpoint_id)
             return False
 
         # 8. Save agent message
