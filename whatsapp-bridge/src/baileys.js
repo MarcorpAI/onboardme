@@ -83,10 +83,18 @@ function getLidFromPhone(phone) {
 
 function clearSessionFiles() {
   try {
-    fs.rmSync(SESSION_PATH, { recursive: true, force: true });
-    fs.mkdirSync(SESSION_PATH, { recursive: true });
+    if (fs.existsSync(SESSION_PATH)) {
+      // Rename first to break any Baileys file watchers/handles,
+      // then delete the renamed directory. The rename is atomic and
+      // severs the watcher's path reference, avoiding EBUSY errors.
+      const trashPath = SESSION_PATH + '_trash_' + Date.now();
+      fs.renameSync(SESSION_PATH, trashPath);
+      fs.rmSync(trashPath, { recursive: true, force: true });
+    }
   } catch (error) {
     logger.warn({ error: error.message }, 'Failed to clear session path');
+  } finally {
+    fs.mkdirSync(SESSION_PATH, { recursive: true });
   }
 }
 
